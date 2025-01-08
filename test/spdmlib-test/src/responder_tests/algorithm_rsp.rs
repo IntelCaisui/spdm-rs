@@ -55,7 +55,7 @@ fn test_case0_handle_spdm_algorithm() {
         let mut writer = Writer::init(negotiate_algorithms);
         let value = SpdmNegotiateAlgorithmsRequestPayload {
             measurement_specification: SpdmMeasurementSpecification::DMTF,
-            other_params_support: SpdmOpaqueSupport::empty(),
+            other_params_support: SpdmAlgoOtherParams::empty(),
             base_asym_algo: SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P384,
             base_hash_algo: SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             alg_struct_count: 4,

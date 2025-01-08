@@ -59,7 +59,7 @@ impl ResponderContext {
             None,
         );
 
-        let other_params_support;
+        let mut other_params_support;
 
         let negotiate_algorithms =
             SpdmNegotiateAlgorithmsRequestPayload::spdm_read(&mut self.common, &mut reader);
@@ -208,8 +208,10 @@ impl ResponderContext {
 
         info!("send spdm algorithm\n");
 
-        let other_params_selection = self.common.config_info.opaque_support & other_params_support;
-        self.common.negotiate_info.opaque_data_support = other_params_selection;
+        let opaque_data_supported =
+            self.common.config_info.opaque_support & other_params_support.get_opaque_support();
+        other_params_support.set_opaque_support(opaque_data_supported);
+        self.common.negotiate_info.opaque_data_support = opaque_data_supported;
 
         let response = SpdmMessage {
             header: SpdmMessageHeader {
@@ -221,7 +223,7 @@ impl ResponderContext {
                     .common
                     .negotiate_info
                     .measurement_specification_sel,
-                other_params_selection,
+                other_params_selection: other_params_support,
                 measurement_hash_algo: self.common.negotiate_info.measurement_hash_sel,
                 base_asym_sel: self.common.negotiate_info.base_asym_sel,
                 base_hash_sel: self.common.negotiate_info.base_hash_sel,

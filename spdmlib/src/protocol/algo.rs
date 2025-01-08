@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
+use crate::common::SpdmOpaqueSupport;
 use crate::config;
 use crate::crypto::bytes_mut_scrubbed::BytesMutStrubbed;
 use bytes::BytesMut;
@@ -98,6 +99,44 @@ impl SpdmMeasurementSpecification {
 
     pub fn is_valid_one_select(&self) -> bool {
         self.is_no_more_than_one_selected() && self.is_valid()
+    }
+}
+
+bitflags! {
+    #[derive(Default)]
+    pub struct SpdmAlgoOtherParams: u8 {
+        const OPAQUE_DATA_FMT0 = 0b0000_0001;
+        const OPAQUE_DATA_FMT1 = 0b0000_0010;
+        const MULTI_KEY_CONN   = 0b0001_0000;
+        const VALID_MASK = Self::OPAQUE_DATA_FMT0.bits
+            | Self::OPAQUE_DATA_FMT1.bits
+            | Self::MULTI_KEY_CONN.bits;
+        const OPAQUE_DATA_SUPPORTED_MASK = Self::OPAQUE_DATA_FMT0.bits
+            | Self::OPAQUE_DATA_FMT1.bits;
+    }
+}
+
+impl Codec for SpdmAlgoOtherParams {
+    fn encode(&self, bytes: &mut Writer) -> Result<usize, codec::EncodeErr> {
+        self.bits().encode(bytes)
+    }
+
+    fn read(r: &mut Reader) -> Option<SpdmAlgoOtherParams> {
+        let bits = u8::read(r)?;
+        SpdmAlgoOtherParams::from_bits(bits & SpdmAlgoOtherParams::VALID_MASK.bits)
+    }
+}
+
+impl SpdmAlgoOtherParams {
+    pub fn get_opaque_support(&self) -> SpdmOpaqueSupport {
+        SpdmOpaqueSupport::from_bits_truncate(
+            self.bits() & SpdmAlgoOtherParams::OPAQUE_DATA_SUPPORTED_MASK.bits,
+        )
+    }
+
+    pub fn set_opaque_support(&mut self, value: SpdmOpaqueSupport) {
+        self.bits =
+            (self.bits() & !SpdmAlgoOtherParams::OPAQUE_DATA_SUPPORTED_MASK.bits) | value.bits();
     }
 }
 
@@ -1535,6 +1574,30 @@ mod tests {
             SpdmMeasurementSpecification::DMTF
         );
         assert_eq!(3, reader.left());
+    }
+    #[test]
+    fn test_case0_spdm_algo_other_params_selection() {
+        let u8_slice = &mut [0u8; 1];
+        let mut writer = Writer::init(u8_slice);
+        let value = SpdmAlgoOtherParams::OPAQUE_DATA_FMT1 | SpdmAlgoOtherParams::MULTI_KEY_CONN;
+        assert!(value.encode(&mut writer).is_ok());
+
+        let mut reader = Reader::init(u8_slice);
+        assert_eq!(1, reader.left());
+
+        let mut other_params_support = SpdmAlgoOtherParams::read(&mut reader).unwrap();
+        assert_eq!(
+            other_params_support,
+            SpdmAlgoOtherParams::OPAQUE_DATA_FMT1 | SpdmAlgoOtherParams::MULTI_KEY_CONN
+        );
+        assert_eq!(0, reader.left());
+
+        let mut opaque_support = other_params_support.get_opaque_support();
+        assert_eq!(opaque_support, SpdmOpaqueSupport::OPAQUE_DATA_FMT1);
+
+        opaque_support.remove(SpdmOpaqueSupport::OPAQUE_DATA_FMT1);
+        other_params_support.set_opaque_support(opaque_support);
+        assert_eq!(other_params_support, SpdmAlgoOtherParams::MULTI_KEY_CONN);
     }
     #[test]
     fn test_case0_spdm_measurement_hash_algo() {

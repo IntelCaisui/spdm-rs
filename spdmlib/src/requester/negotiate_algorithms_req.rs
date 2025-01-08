@@ -31,7 +31,8 @@ impl RequesterContext {
     }
 
     pub fn encode_spdm_algorithm(&mut self, buf: &mut [u8]) -> SpdmResult<usize> {
-        let other_params_support: SpdmOpaqueSupport = self.common.config_info.opaque_support;
+        let mut other_params_support = SpdmAlgoOtherParams::default();
+        other_params_support.set_opaque_support(self.common.config_info.opaque_support);
 
         let mut alg_struct_count = 0;
         let mut alg_struct: [SpdmAlgStruct; MAX_SUPPORTED_ALG_STRUCTURE_COUNT] =
@@ -105,7 +106,7 @@ impl RequesterContext {
                                 algorithms.measurement_specification_sel;
 
                             self.common.negotiate_info.opaque_data_support =
-                                algorithms.other_params_selection;
+                                algorithms.other_params_selection.get_opaque_support();
 
                             self.common.negotiate_info.measurement_hash_sel =
                                 algorithms.measurement_hash_algo;
