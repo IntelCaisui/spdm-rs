@@ -32,7 +32,29 @@ impl RequesterContext {
 
     pub fn encode_spdm_algorithm(&mut self, buf: &mut [u8]) -> SpdmResult<usize> {
         let mut other_params_support = SpdmAlgoOtherParams::default();
-        other_params_support.set_opaque_support(self.common.config_info.opaque_support);
+
+        if self.common.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion12 {
+            other_params_support.set_opaque_support(self.common.config_info.opaque_support);
+        }
+        if self.common.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion13 {
+            if self
+                .common
+                .negotiate_info
+                .rsp_capabilities_sel
+                .contains(SpdmResponseCapabilityFlags::MULTI_KEY_CAP_ONLY)
+            {
+                other_params_support.insert(SpdmAlgoOtherParams::MULTI_KEY_CONN);
+            }
+            if self
+                .common
+                .negotiate_info
+                .rsp_capabilities_sel
+                .contains(SpdmResponseCapabilityFlags::MULTI_KEY_CAP_CONN_SEL)
+                && self.common.config_info.multi_key_conn
+            {
+                other_params_support.insert(SpdmAlgoOtherParams::MULTI_KEY_CONN);
+            }
+        }
 
         let mut alg_struct_count = 0;
         let mut alg_struct: [SpdmAlgStruct; MAX_SUPPORTED_ALG_STRUCTURE_COUNT] =
@@ -107,6 +129,60 @@ impl RequesterContext {
 
                             self.common.negotiate_info.opaque_data_support =
                                 algorithms.other_params_selection.get_opaque_support();
+
+                            if self.common.negotiate_info.spdm_version_sel
+                                >= SpdmVersion::SpdmVersion13
+                            {
+                                if self
+                                    .common
+                                    .negotiate_info
+                                    .rsp_capabilities_sel
+                                    .contains(SpdmResponseCapabilityFlags::MULTI_KEY_CAP_ONLY)
+                                {
+                                    self.common.negotiate_info.multi_key_conn_rsp = true;
+                                } else if self
+                                    .common
+                                    .negotiate_info
+                                    .rsp_capabilities_sel
+                                    .contains(SpdmResponseCapabilityFlags::MULTI_KEY_CAP_CONN_SEL)
+                                {
+                                    if self.common.config_info.multi_key_conn {
+                                        self.common.negotiate_info.multi_key_conn_rsp = true;
+                                    } else {
+                                        self.common.negotiate_info.multi_key_conn_rsp = false;
+                                    }
+                                } else {
+                                    self.common.negotiate_info.multi_key_conn_rsp = false;
+                                }
+
+                                if algorithms
+                                    .other_params_selection
+                                    .contains(SpdmAlgoOtherParams::MULTI_KEY_CONN)
+                                {
+                                    if !self
+                                        .common
+                                        .config_info
+                                        .req_capabilities
+                                        .contains(SpdmRequestCapabilityFlags::MULTI_KEY_CAP_ONLY)
+                                        && !self.common.config_info.req_capabilities.contains(
+                                            SpdmRequestCapabilityFlags::MULTI_KEY_CAP_CONN_SEL,
+                                        )
+                                    {
+                                        return Err(SPDM_STATUS_NEGOTIATION_FAIL);
+                                    }
+                                    self.common.negotiate_info.multi_key_conn_req = true;
+                                } else {
+                                    if self
+                                        .common
+                                        .config_info
+                                        .req_capabilities
+                                        .contains(SpdmRequestCapabilityFlags::MULTI_KEY_CAP_ONLY)
+                                    {
+                                        return Err(SPDM_STATUS_NEGOTIATION_FAIL);
+                                    }
+                                    self.common.negotiate_info.multi_key_conn_req = false;
+                                }
+                            }
 
                             self.common.negotiate_info.measurement_hash_sel =
                                 algorithms.measurement_hash_algo;
