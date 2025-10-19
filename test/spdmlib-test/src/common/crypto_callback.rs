@@ -113,6 +113,7 @@ fn get_random(data: &mut [u8]) -> SpdmResult<usize> {
 fn fake_asym_verify(
     _base_hash_algo: SpdmBaseHashAlgo,
     _base_asym_algo: SpdmBaseAsymAlgo,
+    _raw_pub_key_used: bool,
     _public_cert_der: &[u8],
     _data: &[u8],
     _signature: &SpdmSignatureStruct,

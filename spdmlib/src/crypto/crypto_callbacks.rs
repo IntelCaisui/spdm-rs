@@ -72,9 +72,11 @@ pub struct SpdmAead {
 
 #[derive(Clone)]
 pub struct SpdmAsymVerify {
+    #[allow(clippy::type_complexity)]
     pub verify_cb: fn(
         base_hash_algo: SpdmBaseHashAlgo,
         base_asym_algo: SpdmBaseAsymAlgo,
+        raw_pub_key_used: bool,
         public_cert_der: &[u8],
         data: &[u8],
         signature: &SpdmSignatureStruct,

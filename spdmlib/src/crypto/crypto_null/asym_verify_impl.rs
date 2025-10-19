@@ -14,6 +14,7 @@ fn asym_verify(
     base_hash_algo: SpdmBaseHashAlgo,
     base_asym_algo: SpdmBaseAsymAlgo,
     public_cert_der: &[u8],
+    raw_pub_key_used: bool,
     data: &[u8],
     signature: &SpdmSignatureStruct,
 ) -> SpdmResult {

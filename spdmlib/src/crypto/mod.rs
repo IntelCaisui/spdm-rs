@@ -211,6 +211,7 @@ pub mod asym_verify {
     pub fn verify(
         base_hash_algo: SpdmBaseHashAlgo,
         base_asym_algo: SpdmBaseAsymAlgo,
+        raw_pub_key_used: bool,
         public_cert_der: &[u8],
         data: &[u8],
         signature: &SpdmSignatureStruct,
@@ -221,6 +222,7 @@ pub mod asym_verify {
             .verify_cb)(
             base_hash_algo,
             base_asym_algo,
+            raw_pub_key_used,
             public_cert_der,
             data,
             signature,
@@ -504,6 +506,7 @@ pub fn spdm_asym_verify(
     base_hash_algo: SpdmBaseHashAlgo,
     base_asym_algo: SpdmBaseAsymAlgo,
     pqc_asym_algo: SpdmPqcAsymAlgo,
+    raw_pub_key_used: bool,
     public_cert_der: &[u8],
     data: &[u8],
     signature: &SpdmSignatureStruct,
@@ -520,6 +523,7 @@ pub fn spdm_asym_verify(
         self::asym_verify::verify(
             base_hash_algo,
             base_asym_algo,
+            raw_pub_key_used,
             public_cert_der,
             data,
             signature,

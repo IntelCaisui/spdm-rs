@@ -138,7 +138,15 @@ fn ecdsa_verify(
     sig.data[0..r.len()].copy_from_slice(r);
     sig.data[r.len()..r.len() + s.len()].copy_from_slice(s);
 
-    asym_verify::verify(hash_algo, asym_algo, certificate.as_slice(), msg, &sig).is_ok()
+    asym_verify::verify(
+        hash_algo,
+        asym_algo,
+        false,
+        certificate.as_slice(),
+        msg,
+        &sig,
+    )
+    .is_ok()
 }
 
 pub fn run_self_tests() -> SpdmResult {
