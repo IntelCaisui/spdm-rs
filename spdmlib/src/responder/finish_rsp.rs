@@ -432,11 +432,17 @@ impl ResponderContext {
                 .ok_or(SPDM_STATUS_BUFFER_FULL)?;
         }
 
+        let verify_use_pub_key = if peer_slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE_RSP {
+            true
+        } else {
+            false
+        };
+
         crypto::spdm_asym_verify(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.req_asym_sel.to_base(),
             self.common.negotiate_info.pqc_req_asym_sel.to_base(),
-            false,
+            verify_use_pub_key,
             peer_cert,
             transcript_sign.as_ref(),
             signature,
@@ -492,11 +498,13 @@ impl ResponderContext {
             return Err(SPDM_STATUS_INVALID_STATE_LOCAL);
         }
 
+        let verify_use_pub_key = peer_slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE_RSP;
+
         let res = crypto::spdm_asym_verify(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.req_asym_sel.to_base(),
             self.common.negotiate_info.pqc_req_asym_sel.to_base(),
-            false,
+            verify_use_pub_key,
             peer_cert,
             transcript_hash_sign.as_ref(),
             signature,

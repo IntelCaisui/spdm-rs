@@ -586,11 +586,13 @@ impl RequesterContext {
             return Err(SPDM_STATUS_INVALID_STATE_LOCAL);
         }
 
+        let verify_use_pub_key = slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE;
+
         crypto::spdm_asym_verify(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.base_asym_sel,
             self.common.negotiate_info.pqc_asym_sel,
-            false,
+            verify_use_pub_key,
             cert_chain_data,
             message_sign.as_ref(),
             signature,
@@ -660,11 +662,17 @@ impl RequesterContext {
                 .ok_or(SPDM_STATUS_BUFFER_FULL)?;
         }
 
+        let verify_use_pub_key = if slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE {
+            true
+        } else {
+            false
+        };
+
         crypto::spdm_asym_verify(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.base_asym_sel,
             self.common.negotiate_info.pqc_asym_sel,
-            false,
+            verify_use_pub_key,
             cert_chain_data,
             message.as_ref(),
             signature,
