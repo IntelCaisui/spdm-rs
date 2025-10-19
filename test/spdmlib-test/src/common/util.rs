@@ -7,7 +7,7 @@
 use super::device_io::TestSpdmDeviceIo;
 use super::USE_ECDSA;
 use crate::common::device_io::{MySpdmDeviceIo, TestTransportEncap};
-use crate::common::secret_callback::SECRET_ASYM_IMPL_INSTANCE;
+use crate::common::secret_callback::*;
 use crate::common::transport::PciDoeTransportEncap;
 use codec::{Codec, Reader, Writer};
 use spdmlib::common::{
@@ -38,6 +38,7 @@ pub fn create_info() -> (SpdmConfigInfo, SpdmProvisionInfo) {
             Some(SpdmVersion::SpdmVersion11),
             Some(SpdmVersion::SpdmVersion12),
             Some(SpdmVersion::SpdmVersion13),
+            Some(SpdmVersion::SpdmVersion14),
         ],
         rsp_capabilities: SpdmResponseCapabilityFlags::CERT_CAP
             | SpdmResponseCapabilityFlags::CHAL_CAP
@@ -113,13 +114,13 @@ pub fn create_info() -> (SpdmConfigInfo, SpdmProvisionInfo) {
     let inter_len = inter_cert.len();
     let leaf_len = leaf_cert.len();
 
-    my_cert_chain_data.data_size = (ca_len + inter_len + leaf_len) as u16;
+    my_cert_chain_data.data_size = (ca_len + inter_len + leaf_len) as u32;
     my_cert_chain_data.data[0..ca_len].copy_from_slice(ca_cert.as_ref());
     my_cert_chain_data.data[ca_len..(ca_len + inter_len)].copy_from_slice(inter_cert.as_ref());
     my_cert_chain_data.data[(ca_len + inter_len)..(ca_len + inter_len + leaf_len)]
         .copy_from_slice(leaf_cert.as_ref());
 
-    peer_root_cert_data.data_size = (ca_len) as u16;
+    peer_root_cert_data.data_size = (ca_len) as u32;
     peer_root_cert_data.data[0..ca_len].copy_from_slice(ca_cert.as_ref());
 
     let mut peer_root_cert_data_list = gen_array_clone(None, MAX_ROOT_CERT_SUPPORT);
@@ -127,7 +128,7 @@ pub fn create_info() -> (SpdmConfigInfo, SpdmProvisionInfo) {
 
     let provision_info = SpdmProvisionInfo {
         my_cert_chain_data: [
-            Some(my_cert_chain_data.clone()),
+            Some(my_cert_chain_data),
             None,
             None,
             None,
@@ -138,6 +139,8 @@ pub fn create_info() -> (SpdmConfigInfo, SpdmProvisionInfo) {
         ],
         my_cert_chain: [None, None, None, None, None, None, None, None],
         peer_root_cert_data: peer_root_cert_data_list,
+        my_pub_key: None,
+        peer_pub_key: None,
         local_supported_slot_mask: 0xff,
         local_key_pair_id: [Some(0), None, None, None, None, None, None, None],
         local_cert_info: [
@@ -216,8 +219,9 @@ pub fn req_create_info() -> (SpdmConfigInfo, SpdmProvisionInfo) {
             Some(SpdmVersion::SpdmVersion11),
             Some(SpdmVersion::SpdmVersion12),
             Some(SpdmVersion::SpdmVersion13),
+            Some(SpdmVersion::SpdmVersion14),
         ],
-        req_capabilities: req_capabilities,
+        req_capabilities,
         req_ct_exponent: 0,
         measurement_specification: SpdmMeasurementSpecification::DMTF,
         base_asym_algo: if USE_ECDSA {
@@ -281,7 +285,7 @@ pub fn req_create_info() -> (SpdmConfigInfo, SpdmProvisionInfo) {
         inter_len,
         leaf_len
     );
-    peer_root_cert_data.data_size = (ca_len) as u16;
+    peer_root_cert_data.data_size = (ca_len) as u32;
     peer_root_cert_data.data[0..ca_len].copy_from_slice(ca_cert.as_ref());
 
     let mut peer_root_cert_data_list = gen_array_clone(None, MAX_ROOT_CERT_SUPPORT);
@@ -289,11 +293,12 @@ pub fn req_create_info() -> (SpdmConfigInfo, SpdmProvisionInfo) {
 
     let provision_info = if cfg!(feature = "mut-auth") {
         spdmlib::secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        spdmlib::secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         let mut my_cert_chain_data = SpdmCertChainData {
             ..Default::default()
         };
 
-        my_cert_chain_data.data_size = (ca_len + inter_len + leaf_len) as u16;
+        my_cert_chain_data.data_size = (ca_len + inter_len + leaf_len) as u32;
         my_cert_chain_data.data[0..ca_len].copy_from_slice(ca_cert.as_ref());
         my_cert_chain_data.data[ca_len..(ca_len + inter_len)].copy_from_slice(inter_cert.as_ref());
         my_cert_chain_data.data[(ca_len + inter_len)..(ca_len + inter_len + leaf_len)]
@@ -312,6 +317,8 @@ pub fn req_create_info() -> (SpdmConfigInfo, SpdmProvisionInfo) {
             ],
             my_cert_chain: [None, None, None, None, None, None, None, None],
             peer_root_cert_data: peer_root_cert_data_list,
+            my_pub_key: None,
+            peer_pub_key: None,
             local_supported_slot_mask: 0xff,
             local_key_pair_id: [Some(0), None, None, None, None, None, None, None],
             local_cert_info: [
@@ -379,8 +386,9 @@ pub fn rsp_create_info() -> (SpdmConfigInfo, SpdmProvisionInfo) {
             Some(SpdmVersion::SpdmVersion11),
             Some(SpdmVersion::SpdmVersion12),
             Some(SpdmVersion::SpdmVersion13),
+            Some(SpdmVersion::SpdmVersion14),
         ],
-        rsp_capabilities: rsp_capabilities,
+        rsp_capabilities,
         rsp_ct_exponent: 0,
         measurement_specification: SpdmMeasurementSpecification::DMTF,
         measurement_hash_algo: SpdmMeasurementHashAlgo::TPM_ALG_SHA_384,
@@ -447,7 +455,7 @@ pub fn rsp_create_info() -> (SpdmConfigInfo, SpdmProvisionInfo) {
         inter_len,
         leaf_len
     );
-    my_cert_chain_data.data_size = (ca_len + inter_len + leaf_len) as u16;
+    my_cert_chain_data.data_size = (ca_len + inter_len + leaf_len) as u32;
     my_cert_chain_data.data[0..ca_len].copy_from_slice(ca_cert.as_ref());
     my_cert_chain_data.data[ca_len..(ca_len + inter_len)].copy_from_slice(inter_cert.as_ref());
     my_cert_chain_data.data[(ca_len + inter_len)..(ca_len + inter_len + leaf_len)]
@@ -466,6 +474,8 @@ pub fn rsp_create_info() -> (SpdmConfigInfo, SpdmProvisionInfo) {
         ],
         my_cert_chain: [None, None, None, None, None, None, None, None],
         peer_root_cert_data: gen_array_clone(None, MAX_ROOT_CERT_SUPPORT),
+        my_pub_key: None,
+        peer_pub_key: None,
         local_supported_slot_mask: 0xff,
         local_key_pair_id: [Some(0), None, None, None, None, None, None, None],
         local_cert_info: [
@@ -585,11 +595,15 @@ pub struct ResponderRunner;
 impl ResponderRunner {
     pub fn run(case: TestCase, cb: fn(secure: u8, bufer: &[u8]) -> VecDeque<u8>) -> bool {
         use super::secret_callback::FAKE_SECRET_ASYM_IMPL_INSTANCE;
-        use crate::common::crypto_callback::{FAKE_AEAD, FAKE_ASYM_VERIFY, FAKE_RAND};
+        use crate::common::crypto_callback::{
+            FAKE_AEAD, FAKE_ASYM_VERIFY, FAKE_PQC_ASYM_VERIFY, FAKE_RAND,
+        };
         spdmlib::crypto::aead::register(FAKE_AEAD.clone());
         spdmlib::crypto::rand::register(FAKE_RAND.clone());
         spdmlib::crypto::asym_verify::register(FAKE_ASYM_VERIFY.clone());
+        spdmlib::crypto::pqc_asym_verify::register(FAKE_PQC_ASYM_VERIFY.clone());
         spdmlib::secret::asym_sign::register(FAKE_SECRET_ASYM_IMPL_INSTANCE.clone());
+        spdmlib::secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
         let mut output = Arc::new(Mutex::new(VecDeque::<u8>::new()));
         let mut rx = Arc::new(Mutex::new(case.input_to_vec(cb)));

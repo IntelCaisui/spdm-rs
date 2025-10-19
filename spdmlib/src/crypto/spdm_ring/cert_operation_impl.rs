@@ -11,6 +11,7 @@ use crate::crypto::SpdmCertOperation;
 use crate::error::{SpdmResult, SPDM_STATUS_INVALID_CERT, SPDM_STATUS_INVALID_STATE_LOCAL};
 use ring::io::der;
 use rustls_pki_types::{CertificateDer, SignatureVerificationAlgorithm, UnixTime};
+use webpki::{ExtendedKeyUsageValidator, KeyPurposeId, KeyPurposeIdIter, KeyUsage};
 
 pub static DEFAULT: SpdmCertOperation = SpdmCertOperation {
     get_cert_from_cert_chain_cb: get_cert_from_cert_chain,
@@ -44,6 +45,150 @@ fn get_cert_from_cert_chain(cert_chain: &[u8], index: isize) -> SpdmResult<(usiz
         }
         offset += this_cert_len;
     }
+}
+
+// 1.3.6.1.4.1.412.274.3 { id-DMTF-spdm 3 }
+static EKU_SPDM_RESPONDER_AUTH: &[u8] =
+    &[0x2B, 0x06, 0x01, 0x04, 0x01, 0x83, 0x1C, 0x82, 0x12, 0x03];
+// 1.3.6.1.4.1.412.274.4 { id-DMTF-spdm 4 }
+static EKU_SPDM_REQUESTER_AUTH: &[u8] =
+    &[0x2B, 0x06, 0x01, 0x04, 0x01, 0x83, 0x1C, 0x82, 0x12, 0x04];
+
+/// EKU validator for SPDM Requester certificates
+///
+/// Validation rules:
+/// - If no EKU extension is present, validation passes
+/// - If EKU contains SPDM responder auth OID, it must also contain SPDM requester auth OID
+/// - If EKU contains only non-SPDM OIDs, validation passes
+/// - Otherwise, validation fails
+#[allow(dead_code)]
+struct SpdmRequesterEkuValidator;
+
+#[allow(dead_code)]
+impl ExtendedKeyUsageValidator for SpdmRequesterEkuValidator {
+    fn validate(&self, iter: KeyPurposeIdIter<'_, '_>) -> Result<(), webpki::Error> {
+        let mut has_spdm_requester = false;
+        let mut has_spdm_responder = false;
+        let mut has_any_eku = false;
+
+        // Create KeyPurposeId instances for comparison
+        let spdm_requester_id = KeyPurposeId::new(EKU_SPDM_REQUESTER_AUTH);
+        let spdm_responder_id = KeyPurposeId::new(EKU_SPDM_RESPONDER_AUTH);
+
+        for oid_result in iter {
+            match oid_result {
+                Ok(key_purpose) => {
+                    has_any_eku = true;
+
+                    if key_purpose == spdm_requester_id {
+                        has_spdm_requester = true;
+                    } else if key_purpose == spdm_responder_id {
+                        has_spdm_responder = true;
+                    }
+                    // Other OIDs are allowed and don't affect validation
+                }
+                Err(_) => {
+                    // Malformed EKU extension
+                    return Err(webpki::Error::ExtensionValueInvalid);
+                }
+            }
+        }
+
+        // If no EKU extension, pass validation
+        if !has_any_eku {
+            return Ok(());
+        }
+
+        // If has SPDM responder auth, must also have SPDM requester auth
+        if has_spdm_responder && !has_spdm_requester {
+            error!("SPDM Requester certificate validation failed: Missing required SPDM Requester Auth EKU when SPDM Responder Auth EKU is present");
+            return Err(webpki::Error::RequiredEkuNotFoundContext(
+                webpki::RequiredEkuNotFoundContext {
+                    required: KeyUsage::required(EKU_SPDM_REQUESTER_AUTH),
+                    present: vec![EKU_SPDM_RESPONDER_AUTH
+                        .iter()
+                        .map(|&b| b as usize)
+                        .collect()],
+                },
+            ));
+        }
+
+        // All other cases pass (including having only SPDM requester auth, or only non-SPDM OIDs)
+        Ok(())
+    }
+}
+
+/// Create an EKU validator for SPDM Requester certificates
+#[allow(dead_code)]
+pub fn spdm_requester_eku_validator() -> impl ExtendedKeyUsageValidator {
+    SpdmRequesterEkuValidator
+}
+
+/// EKU validator for SPDM Responder certificates
+///
+/// Validation rules:
+/// - If no EKU extension is present, validation passes
+/// - If EKU contains SPDM requester auth OID, it must also contain SPDM responder auth OID
+/// - If EKU contains only non-SPDM OIDs, validation passes
+/// - Otherwise, validation fails
+struct SpdmResponderEkuValidator;
+
+impl ExtendedKeyUsageValidator for SpdmResponderEkuValidator {
+    fn validate(&self, iter: KeyPurposeIdIter<'_, '_>) -> Result<(), webpki::Error> {
+        let mut has_spdm_requester = false;
+        let mut has_spdm_responder = false;
+        let mut has_any_eku = false;
+
+        // Create KeyPurposeId instances for comparison
+        let spdm_requester_id = KeyPurposeId::new(EKU_SPDM_REQUESTER_AUTH);
+        let spdm_responder_id = KeyPurposeId::new(EKU_SPDM_RESPONDER_AUTH);
+
+        for oid_result in iter {
+            match oid_result {
+                Ok(key_purpose) => {
+                    has_any_eku = true;
+
+                    if key_purpose == spdm_requester_id {
+                        has_spdm_requester = true;
+                    } else if key_purpose == spdm_responder_id {
+                        has_spdm_responder = true;
+                    }
+                    // Other OIDs are allowed and don't affect validation
+                }
+                Err(_) => {
+                    // Malformed EKU extension
+                    return Err(webpki::Error::ExtensionValueInvalid);
+                }
+            }
+        }
+
+        // If no EKU extension, pass validation
+        if !has_any_eku {
+            return Ok(());
+        }
+
+        // If has SPDM requester auth, must also have SPDM responder auth
+        if has_spdm_requester && !has_spdm_responder {
+            error!("SPDM Responder certificate validation failed: Missing required SPDM Responder Auth EKU when SPDM Requester Auth EKU is present");
+            return Err(webpki::Error::RequiredEkuNotFoundContext(
+                webpki::RequiredEkuNotFoundContext {
+                    required: webpki::KeyUsage::required(EKU_SPDM_RESPONDER_AUTH),
+                    present: vec![EKU_SPDM_REQUESTER_AUTH
+                        .iter()
+                        .map(|&b| b as usize)
+                        .collect()],
+                },
+            ));
+        }
+
+        // All other cases pass (including having only SPDM requester auth, or only non-SPDM OIDs)
+        Ok(())
+    }
+}
+
+/// Create an EKU validator for SPDM Responder certificates
+pub fn spdm_responder_eku_validator() -> impl ExtendedKeyUsageValidator {
+    SpdmResponderEkuValidator
 }
 
 fn verify_cert_chain(cert_chain: &[u8]) -> SpdmResult {
@@ -204,17 +349,15 @@ fn verify_cert_chain(cert_chain: &[u8]) -> SpdmResult {
         .map(|&cert| CertificateDer::from(cert))
         .collect();
 
-    // Create KeyUsage for SPDM responder authentication
-    // EKU_SPDM_RESPONDER_AUTH corresponds to server authentication in this context
-    static EKU_SPDM_RESPONDER_AUTH: &[u8] = &[40 + 3, 6, 1, 5, 5, 7, 3, 1]; // FIXME: Incorrect OID!
-    let eku = webpki::KeyUsage::required_if_present(EKU_SPDM_RESPONDER_AUTH);
+    // Use SPDM responder EKU validator for certificate verification
+    let eku_validator = spdm_responder_eku_validator();
 
     match cert.verify_for_usage(
         ALL_SIGALGS,
         &anchors,
         &inter_ders,
         time,
-        eku,
+        eku_validator,
         None, // No revocation checking
         None, // No additional validation callback
     ) {
@@ -356,5 +499,51 @@ mod tests {
         // Change intermediate cert data
         cert_chain[1380] = 0xFF;
         assert!(verify_cert_chain(&cert_chain).is_err());
+    }
+
+    #[test]
+    fn test_certificate_eku_v3_end_with_eku_example_1() {
+        let cert_der = &include_bytes!("../../../../test_key/test_spdm_eku/example/cert1.der")[..];
+        assert!(verify_cert_chain(cert_der).is_ok());
+    }
+
+    #[test]
+    fn test_certificate_eku_v3_end_with_eku_spdm_oid_3() {
+        let cert_der = &include_bytes!(
+            "../../../../test_key/test_spdm_eku/gen/v3_end_with_eku_spdm_oid_3/cert.der"
+        )[..];
+        assert!(verify_cert_chain(cert_der).is_ok());
+    }
+
+    #[test]
+    fn test_certificate_eku_v3_end_with_eku_spdm_oid_4() {
+        let cert_der = &include_bytes!(
+            "../../../../test_key/test_spdm_eku/gen/v3_end_with_eku_spdm_oid_4/cert.der"
+        )[..];
+        assert!(verify_cert_chain(cert_der).is_err());
+    }
+
+    #[test]
+    fn test_certificate_eku_v3_end_with_eku_spdm_oid_3_and_4() {
+        let cert_der = &include_bytes!(
+            "../../../../test_key/test_spdm_eku/gen/v3_end_with_eku_spdm_oid_3_and_4/cert.der"
+        )[..];
+        assert!(verify_cert_chain(cert_der).is_ok());
+    }
+
+    #[test]
+    fn test_certificate_eku_v3_end_without_eku() {
+        let cert_der = &include_bytes!(
+            "../../../../test_key/test_spdm_eku/gen/v3_end_without_eku/cert.der"
+        )[..];
+        assert!(verify_cert_chain(cert_der).is_ok());
+    }
+
+    #[test]
+    fn test_certificate_eku_v3_end_with_eku_spdm_without_spdm_oid() {
+        let cert_der = &include_bytes!(
+            "../../../../test_key/test_spdm_eku/gen/v3_end_with_eku_spdm_without_spdm_oid/cert.der"
+        )[..];
+        assert!(verify_cert_chain(cert_der).is_ok());
     }
 }

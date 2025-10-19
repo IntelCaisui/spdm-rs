@@ -212,15 +212,19 @@ impl ResponderContext {
         }
 
         let key_exchange_req = key_exchange_req.unwrap();
+
         let slot_id = key_exchange_req.slot_id as usize;
-        if slot_id >= SPDM_MAX_SLOT_NUMBER {
+        if slot_id >= SPDM_MAX_SLOT_NUMBER && slot_id != SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE as usize
+        {
             self.write_spdm_error(SpdmErrorCode::SpdmErrorInvalidRequest, 0, writer);
             return (
                 Err(SPDM_STATUS_INVALID_MSG_FIELD),
                 Some(writer.used_slice()),
             );
-        }
-        if self.common.provision_info.my_cert_chain[slot_id].is_none() {
+        };
+        if slot_id < SPDM_MAX_SLOT_NUMBER
+            && self.common.provision_info.my_cert_chain[slot_id].is_none()
+        {
             self.write_spdm_error(SpdmErrorCode::SpdmErrorInvalidRequest, 0, writer);
             return (
                 Err(SPDM_STATUS_INVALID_MSG_FIELD),
@@ -230,24 +234,51 @@ impl ResponderContext {
 
         self.common
             .runtime_info
-            .set_local_used_cert_chain_slot_id(key_exchange_req.slot_id);
-
-        let (exchange, key_exchange_context) =
-            if let Some(kp) = crypto::dhe::generate_key_pair(self.common.negotiate_info.dhe_sel) {
-                kp
-            } else {
-                self.write_spdm_error(SpdmErrorCode::SpdmErrorUnspecified, 0, writer);
-                return (Err(SPDM_STATUS_CRYPTO_ERROR), Some(writer.used_slice()));
-            };
-
-        debug!("!!! exchange data : {:02x?}\n", exchange);
+            .set_local_used_cert_chain_slot_id(slot_id as u8);
 
         debug!(
             "!!! exchange data (peer) : {:02x?}\n",
             &key_exchange_req.exchange
         );
 
-        let final_key = key_exchange_context.compute_final_key(&key_exchange_req.exchange);
+        let (final_key, exchange) = if self.common.negotiate_info.kem_sel != SpdmKemAlgo::empty() {
+            let peer_kem_encap_key = key_exchange_req.exchange.to_kem();
+            let kem_key_exchange_context =
+                crypto::kem_encap::new_key(self.common.negotiate_info.kem_sel, &peer_kem_encap_key);
+            if kem_key_exchange_context.is_none() {
+                self.write_spdm_error(SpdmErrorCode::SpdmErrorUnspecified, 0, writer);
+                return (Err(SPDM_STATUS_CRYPTO_ERROR), Some(writer.used_slice()));
+            }
+            let kem_key_exchange_context = kem_key_exchange_context.unwrap();
+
+            let (my_kem_cipher_text, my_final_key) =
+                if let Some(kp) = kem_key_exchange_context.encap_key() {
+                    kp
+                } else {
+                    self.write_spdm_error(SpdmErrorCode::SpdmErrorUnspecified, 0, writer);
+                    return (Err(SPDM_STATUS_CRYPTO_ERROR), Some(writer.used_slice()));
+                };
+            (
+                Some(my_final_key),
+                SpdmRspExchangeStruct::from_kem(my_kem_cipher_text),
+            )
+        } else {
+            let (my_dhe_exchange, dhe_key_exchange_context) = if let Some(kp) =
+                crypto::dhe::generate_key_pair(self.common.negotiate_info.dhe_sel)
+            {
+                kp
+            } else {
+                self.write_spdm_error(SpdmErrorCode::SpdmErrorUnspecified, 0, writer);
+                return (Err(SPDM_STATUS_CRYPTO_ERROR), Some(writer.used_slice()));
+            };
+            let peer_dhe_exchange = key_exchange_req.exchange.to_dhe();
+            (
+                dhe_key_exchange_context.compute_final_key(&peer_dhe_exchange),
+                SpdmRspExchangeStruct::from_dhe(my_dhe_exchange),
+            )
+        };
+
+        debug!("!!! exchange data : {:02x?}\n", exchange);
 
         if final_key.is_none() {
             self.write_spdm_error(SpdmErrorCode::SpdmErrorUnspecified, 0, writer);
@@ -269,6 +300,7 @@ impl ResponderContext {
         // create session structure
         let hash_algo = self.common.negotiate_info.base_hash_sel;
         let dhe_algo = self.common.negotiate_info.dhe_sel;
+        let kem_algo = self.common.negotiate_info.kem_sel;
         let aead_algo = self.common.negotiate_info.aead_sel;
         let key_schedule_algo = self.common.negotiate_info.key_schedule_sel;
         let sequence_number_count = {
@@ -286,7 +318,56 @@ impl ResponderContext {
 
         let spdm_version_sel = self.common.negotiate_info.spdm_version_sel;
         let message_a = self.common.runtime_info.message_a.clone();
-        let cert_chain_hash = self.common.get_certchain_hash_local(false, slot_id);
+
+        #[cfg(feature = "mut-auth")]
+        let mut_auth_req = match self.common.encap_context.mut_auth_requested {
+            SpdmKeyExchangeMutAuthAttributes::MUT_AUTH_REQ => {
+                SpdmKeyExchangeMutAuthAttributes::MUT_AUTH_REQ
+            }
+            _ => SpdmKeyExchangeMutAuthAttributes::MUT_AUTH_REQ_WITH_GET_DIGESTS,
+        };
+        #[cfg(feature = "mut-auth")]
+        let req_slot_id = if mut_auth_req == SpdmKeyExchangeMutAuthAttributes::MUT_AUTH_REQ {
+            if self.common.encap_context.req_slot_id >= SPDM_MAX_SLOT_NUMBER as u8
+                && self.common.encap_context.req_slot_id != SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE_RSP
+            {
+                self.write_spdm_error(SpdmErrorCode::SpdmErrorUnspecified, 0, writer);
+                return (
+                    Err(SPDM_STATUS_INVALID_MSG_FIELD),
+                    Some(writer.used_slice()),
+                );
+            }
+            self.common.encap_context.req_slot_id
+        } else {
+            0
+        };
+        #[cfg(feature = "mut-auth")]
+        if mut_auth_req == SpdmKeyExchangeMutAuthAttributes::MUT_AUTH_REQ {
+            self.common
+                .runtime_info
+                .set_peer_used_cert_chain_slot_id(self.common.encap_context.req_slot_id);
+        }
+        #[cfg(not(feature = "mut-auth"))]
+        let mut_auth_req = SpdmKeyExchangeMutAuthAttributes::empty();
+        #[cfg(not(feature = "mut-auth"))]
+        let req_slot_id = 0;
+
+        let cert_chain_hash = if slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE as usize {
+            if let Some(my_pub_key) = self.common.provision_info.my_pub_key {
+                crypto::hash::hash_all(
+                    self.common.negotiate_info.base_hash_sel,
+                    my_pub_key.data[..my_pub_key.data_size as usize].as_ref(),
+                )
+            } else {
+                error!("responder public key not provisioned!\n");
+                None
+            }
+        } else if slot_id < SPDM_MAX_SLOT_NUMBER {
+            self.common.get_certchain_hash_local(false, slot_id)
+        } else {
+            error!("invalid requested slot!\n");
+            None
+        };
         if cert_chain_hash.is_none() {
             self.write_spdm_error(SpdmErrorCode::SpdmErrorInvalidRequest, 0, writer);
             return (
@@ -305,21 +386,19 @@ impl ResponderContext {
             );
         }
 
-        #[cfg(feature = "mut-auth")]
-        let mut_auth_req = SpdmKeyExchangeMutAuthAttributes::MUT_AUTH_REQ_WITH_GET_DIGESTS;
-        #[cfg(not(feature = "mut-auth"))]
-        let mut_auth_req = SpdmKeyExchangeMutAuthAttributes::empty();
-
         let session = session.unwrap();
         let session_id = ((rsp_session_id as u32) << 16) + key_exchange_req.req_session_id as u32;
         *target_session_id = Some(session_id);
         session.setup(session_id).unwrap();
         session.set_use_psk(false);
         session.set_slot_id(slot_id as u8);
-        session.set_crypto_param(hash_algo, dhe_algo, aead_algo, key_schedule_algo);
+        session.set_crypto_param(hash_algo, dhe_algo, kem_algo, aead_algo, key_schedule_algo);
         session.set_mut_auth_requested(mut_auth_req);
         session.set_transport_param(sequence_number_count, max_random_count);
-        if session.set_dhe_secret(spdm_version_sel, final_key).is_err() {
+        if session
+            .set_shared_secret(spdm_version_sel, final_key)
+            .is_err()
+        {
             session.teardown();
             self.write_spdm_error(SpdmErrorCode::SpdmErrorUnspecified, 0, writer);
             return (Err(SPDM_STATUS_CRYPTO_ERROR), Some(writer.used_slice()));
@@ -359,17 +438,17 @@ impl ResponderContext {
                 heartbeat_period: self.common.config_info.heartbeat_period,
                 rsp_session_id,
                 mut_auth_req,
-                req_slot_id: 0x0,
+                req_slot_id,
                 random: SpdmRandomStruct { data: random },
                 exchange,
                 measurement_summary_hash,
                 opaque: return_opaque,
                 signature: SpdmSignatureStruct {
-                    data_size: self.common.negotiate_info.base_asym_sel.get_size(),
-                    data: [0xbb; SPDM_MAX_ASYM_KEY_SIZE],
+                    data_size: self.common.get_asym_sig_size(),
+                    data: [0xbb; SPDM_MAX_ASYM_SIG_SIZE],
                 },
                 verify_data: SpdmDigestStruct {
-                    data_size: self.common.negotiate_info.base_hash_sel.get_size(),
+                    data_size: self.common.get_hash_size(),
                     data: Box::new([0xcc; SPDM_MAX_HASH_SIZE]),
                 },
             }),
@@ -383,15 +462,14 @@ impl ResponderContext {
                 Some(writer.used_slice()),
             );
         }
-        let used = writer.used();
 
         // generate signature
-        let base_asym_size = self.common.negotiate_info.base_asym_sel.get_size() as usize;
-        let base_hash_size = self.common.negotiate_info.base_hash_sel.get_size() as usize;
-        let temp_used = if in_clear_text {
-            used - base_asym_size
+        let signature_size = self.common.get_asym_sig_size() as usize;
+        let base_hash_size = self.common.get_hash_size() as usize;
+        let mut temp_used = if in_clear_text {
+            writer.used() - signature_size
         } else {
-            used - base_asym_size - base_hash_size
+            writer.used() - signature_size - base_hash_size
         };
 
         if self
@@ -443,6 +521,11 @@ impl ResponderContext {
             );
         }
 
+        // patch the signature before send
+        writer.mut_used_slice()[temp_used..(temp_used + signature_size)]
+            .copy_from_slice(signature.as_ref());
+        temp_used += signature_size;
+
         let session = if let Some(session) = self.common.get_immutable_session_via_id(session_id) {
             session
         } else {
@@ -473,6 +556,7 @@ impl ResponderContext {
                 Some(writer.used_slice()),
             );
         };
+        session.set_th1(th1.clone());
         if let Err(e) = session.generate_handshake_secret(spdm_version_sel, &th1) {
             self.write_spdm_error(SpdmErrorCode::SpdmErrorUnspecified, 0, writer);
             return (Err(e), Some(writer.used_slice()));
@@ -541,11 +625,9 @@ impl ResponderContext {
                 );
             }
 
-            // patch the message before send
-            writer.mut_used_slice()
-                [(used - base_hash_size - base_asym_size)..(used - base_hash_size)]
-                .copy_from_slice(signature.as_ref());
-            writer.mut_used_slice()[(used - base_hash_size)..used].copy_from_slice(hmac.as_ref());
+            // patch the hmac before send
+            writer.mut_used_slice()[temp_used..(temp_used + base_hash_size)]
+                .copy_from_slice(hmac.as_ref());
         }
 
         let heartbeat_period = self.common.config_info.heartbeat_period;
@@ -617,9 +699,10 @@ impl ResponderContext {
             return Err(SPDM_STATUS_INVALID_STATE_LOCAL);
         }
 
-        crate::secret::asym_sign::sign(
+        crate::secret::spdm_asym_sign(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.pqc_asym_sel,
             message_sign.as_ref(),
         )
         .ok_or(SPDM_STATUS_CRYPTO_ERROR)
@@ -644,6 +727,7 @@ impl ResponderContext {
             false,
             &session.runtime_info.message_k,
             None,
+            None,
         )?;
         if self.common.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion12 {
             message.reset_message();
@@ -661,9 +745,10 @@ impl ResponderContext {
                 .ok_or(SPDM_STATUS_BUFFER_FULL)?;
         }
 
-        crate::secret::asym_sign::sign(
+        crate::secret::spdm_asym_sign(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.pqc_asym_sel,
             message.as_ref(),
         )
         .ok_or(SPDM_STATUS_CRYPTO_ERROR)

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
 use crate::common::device_io::{FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::SECRET_ASYM_IMPL_INSTANCE;
+use crate::common::secret_callback::*;
 use crate::common::transport::PciDoeTransportEncap;
 use crate::common::util::create_info;
 use codec::{Codec, Reader, Writer};
@@ -25,6 +25,7 @@ fn test_encap_handle_get_digest() {
     ))));
 
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
     let mut context = requester::RequesterContext::new(
         socket_io_transport,
@@ -34,7 +35,7 @@ fn test_encap_handle_get_digest() {
     );
     context.common.provision_info.my_cert_chain = [
         Some(SpdmCertChainBuffer {
-            data_size: 512u16,
+            data_size: 512u32,
             data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
         }),
         None,

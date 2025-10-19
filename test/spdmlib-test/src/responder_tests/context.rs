@@ -23,6 +23,7 @@ fn test_case0_send_secured_message() {
     let shared_buffer = SharedBuffer::new();
     let socket_io_transport = FakeSpdmDeviceIoReceve::new(&shared_buffer);
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
     let mut context = responder::ResponderContext::new(
         &mut socket_io_transport,
@@ -39,6 +40,7 @@ fn test_case0_send_secured_message() {
     context.common.session[0].set_crypto_param(
         SpdmBaseHashAlgo::TPM_ALG_SHA_384,
         SpdmDheAlgo::SECP_384_R1,
+        SpdmKemAlgo::empty(),
         SpdmAeadAlgo::AES_256_GCM,
         SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
     );
@@ -70,6 +72,7 @@ fn test_case1_send_secured_message() {
     let shared_buffer = SharedBuffer::new();
     let socket_io_transport = FakeSpdmDeviceIoReceve::new(&shared_buffer);
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     let mut context = responder::ResponderContext::new(
         &mut socket_io_transport,
         pcidoe_transport_encap,
@@ -101,6 +104,7 @@ fn test_case0_receive_message() {
         vendor_id: PciDoeVendorId::PciDoeVendorIdPciSig,
         data_object_type: PciDoeDataObjectType::PciDoeDataObjectTypeSecuredSpdm,
         payload_length: 100,
+        connection_id: 0,
     };
     assert!(value.encode(&mut writer).is_ok());
 
@@ -111,6 +115,7 @@ fn test_case0_receive_message() {
 
     let socket_io_transport = FakeSpdmDeviceIoReceve::new(&shared_buffer);
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     let mut context = responder::ResponderContext::new(
         &mut socket_io_transport,
         pcidoe_transport_encap,
@@ -132,6 +137,7 @@ fn test_case0_process_message() {
         vendor_id: PciDoeVendorId::PciDoeVendorIdPciSig,
         data_object_type: PciDoeDataObjectType::PciDoeDataObjectTypeSecuredSpdm,
         payload_length: 100,
+        connection_id: 0,
     };
     assert!(value.encode(&mut writer).is_ok());
 
@@ -156,6 +162,7 @@ fn test_case0_process_message() {
     context.common.session[0].set_crypto_param(
         SpdmBaseHashAlgo::TPM_ALG_SHA_384,
         SpdmDheAlgo::SECP_384_R1,
+        SpdmKemAlgo::empty(),
         SpdmAeadAlgo::AES_256_GCM,
         SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
     );
@@ -179,6 +186,7 @@ fn test_case0_dispatch_secured_message() {
     );
 
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     secret::measurement::register(SECRET_MEASUREMENT_IMPL_INSTANCE.clone());
 
     let rsp_session_id = 0xFFFEu16;
@@ -195,12 +203,13 @@ fn test_case0_dispatch_secured_message() {
         context.session[0].set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
         context.provision_info.my_cert_chain = [
             Some(SpdmCertChainBuffer {
-                data_size: 512u16,
+                data_size: 512u32,
                 data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
             }),
             None,

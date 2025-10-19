@@ -2,18 +2,22 @@
 //
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
-use crate::common::crypto_callback::FAKE_RAND;
-use crate::common::device_io::{FakeSpdmDeviceIo, FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::SECRET_ASYM_IMPL_INSTANCE;
-use crate::common::transport::PciDoeTransportEncap;
-use crate::common::util::{create_info, get_rsp_cert_chain_buff};
-use spdmlib::common::SpdmConnectionState;
-use spdmlib::protocol::*;
-use spdmlib::requester::RequesterContext;
-use spdmlib::{config, crypto, responder, secret};
-use spin::Mutex;
+#[cfg(feature = "hashed-transcript-data")]
 extern crate alloc;
-use alloc::sync::Arc;
+#[cfg(feature = "hashed-transcript-data")]
+use {
+    crate::common::crypto_callback::FAKE_RAND,
+    crate::common::device_io::{FakeSpdmDeviceIo, FakeSpdmDeviceIoReceve, SharedBuffer},
+    crate::common::secret_callback::*,
+    crate::common::transport::PciDoeTransportEncap,
+    crate::common::util::{create_info, get_rsp_cert_chain_buff},
+    alloc::sync::Arc,
+    spdmlib::common::SpdmConnectionState,
+    spdmlib::protocol::*,
+    spdmlib::requester::RequesterContext,
+    spdmlib::{config, crypto, responder, secret},
+    spin::Mutex,
+};
 
 #[test]
 #[cfg(feature = "hashed-transcript-data")]
@@ -30,6 +34,7 @@ fn test_case0_send_receive_spdm_challenge() {
     let pcidoe_transport_encap = Arc::new(Mutex::new(pcidoe_transport_encap));
 
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    spdmlib::secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     crypto::rand::register(FAKE_RAND.clone());
 
     let mut responder = responder::ResponderContext::new(
@@ -42,7 +47,7 @@ fn test_case0_send_receive_spdm_challenge() {
     responder.common.reset_runtime_info();
     responder.common.provision_info.my_cert_chain = [
         Some(SpdmCertChainBuffer {
-            data_size: 512u16,
+            data_size: 512u32,
             data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
         }),
         None,

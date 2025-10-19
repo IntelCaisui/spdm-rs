@@ -4,16 +4,20 @@
 
 use std::path::PathBuf;
 
-use spdmlib::secret::SpdmSecretAsymSign;
+use spdmlib::secret::{SpdmSecretAsymSign, SpdmSecretPqcAsymSign};
 
 use spdmlib::protocol::{
-    SpdmBaseAsymAlgo, SpdmBaseHashAlgo, SpdmSignatureStruct, RSAPSS_2048_KEY_SIZE,
-    RSAPSS_3072_KEY_SIZE, RSAPSS_4096_KEY_SIZE, RSASSA_2048_KEY_SIZE, RSASSA_3072_KEY_SIZE,
-    RSASSA_4096_KEY_SIZE, SPDM_MAX_ASYM_KEY_SIZE,
+    SpdmBaseAsymAlgo, SpdmBaseHashAlgo, SpdmPqcAsymAlgo, SpdmSignatureStruct, RSAPSS_2048_SIG_SIZE,
+    RSAPSS_3072_SIG_SIZE, RSAPSS_4096_SIG_SIZE, RSASSA_2048_SIG_SIZE, RSASSA_3072_SIG_SIZE,
+    RSASSA_4096_SIG_SIZE, SPDM_MAX_ASYM_SIG_SIZE,
 };
 
 pub static SECRET_ASYM_IMPL_INSTANCE: SpdmSecretAsymSign =
     SpdmSecretAsymSign { sign_cb: asym_sign };
+
+pub static SECRET_PQC_ASYM_IMPL_INSTANCE: SpdmSecretPqcAsymSign = SpdmSecretPqcAsymSign {
+    sign_cb: pqc_asym_sign,
+};
 
 fn asym_sign(
     base_hash_algo: SpdmBaseHashAlgo,
@@ -32,7 +36,7 @@ fn asym_sign(
         | (SpdmBaseHashAlgo::TPM_ALG_SHA_256, SpdmBaseAsymAlgo::TPM_ALG_RSASSA_4096) => {
             sign_rsa_asym_algo(
                 &ring::signature::RSA_PKCS1_SHA256,
-                base_asym_algo.get_size() as usize,
+                base_asym_algo.get_sig_size() as usize,
                 data,
             )
         }
@@ -41,7 +45,7 @@ fn asym_sign(
         | (SpdmBaseHashAlgo::TPM_ALG_SHA_256, SpdmBaseAsymAlgo::TPM_ALG_RSAPSS_4096) => {
             sign_rsa_asym_algo(
                 &ring::signature::RSA_PSS_SHA256,
-                base_asym_algo.get_size() as usize,
+                base_asym_algo.get_sig_size() as usize,
                 data,
             )
         }
@@ -50,7 +54,7 @@ fn asym_sign(
         | (SpdmBaseHashAlgo::TPM_ALG_SHA_384, SpdmBaseAsymAlgo::TPM_ALG_RSASSA_4096) => {
             sign_rsa_asym_algo(
                 &ring::signature::RSA_PKCS1_SHA384,
-                base_asym_algo.get_size() as usize,
+                base_asym_algo.get_sig_size() as usize,
                 data,
             )
         }
@@ -59,7 +63,7 @@ fn asym_sign(
         | (SpdmBaseHashAlgo::TPM_ALG_SHA_384, SpdmBaseAsymAlgo::TPM_ALG_RSAPSS_4096) => {
             sign_rsa_asym_algo(
                 &ring::signature::RSA_PSS_SHA384,
-                base_asym_algo.get_size() as usize,
+                base_asym_algo.get_sig_size() as usize,
                 data,
             )
         }
@@ -68,7 +72,7 @@ fn asym_sign(
         | (SpdmBaseHashAlgo::TPM_ALG_SHA_512, SpdmBaseAsymAlgo::TPM_ALG_RSASSA_4096) => {
             sign_rsa_asym_algo(
                 &ring::signature::RSA_PKCS1_SHA512,
-                base_asym_algo.get_size() as usize,
+                base_asym_algo.get_sig_size() as usize,
                 data,
             )
         }
@@ -77,7 +81,7 @@ fn asym_sign(
         | (SpdmBaseHashAlgo::TPM_ALG_SHA_512, SpdmBaseAsymAlgo::TPM_ALG_RSAPSS_4096) => {
             sign_rsa_asym_algo(
                 &ring::signature::RSA_PSS_SHA512,
-                base_asym_algo.get_size() as usize,
+                base_asym_algo.get_sig_size() as usize,
                 data,
             )
         }
@@ -115,7 +119,7 @@ fn sign_ecdsa_asym_algo(
     let signature = key_pair.sign(&rng, data).ok()?;
     let signature = signature.as_ref();
 
-    let mut full_signature: [u8; SPDM_MAX_ASYM_KEY_SIZE] = [0u8; SPDM_MAX_ASYM_KEY_SIZE];
+    let mut full_signature: [u8; SPDM_MAX_ASYM_SIG_SIZE] = [0u8; SPDM_MAX_ASYM_SIG_SIZE];
     full_signature[..signature.len()].copy_from_slice(signature);
 
     Some(SpdmSignatureStruct {
@@ -134,13 +138,13 @@ fn sign_rsa_asym_algo(
 
     #[allow(unreachable_patterns)]
     let key_file_path = match key_len {
-        RSASSA_2048_KEY_SIZE | RSAPSS_2048_KEY_SIZE => {
+        RSASSA_2048_SIG_SIZE | RSAPSS_2048_SIG_SIZE => {
             crate_dir.join("test_key/rsa2048/end_responder.key.der")
         }
-        RSASSA_3072_KEY_SIZE | RSAPSS_3072_KEY_SIZE => {
+        RSASSA_3072_SIG_SIZE | RSAPSS_3072_SIG_SIZE => {
             crate_dir.join("test_key/rsa3072/end_responder.key.der")
         }
-        RSASSA_4096_KEY_SIZE | RSAPSS_4096_KEY_SIZE => {
+        RSASSA_4096_SIG_SIZE | RSAPSS_4096_SIG_SIZE => {
             crate_dir.join("test_key/rsa3072/end_responder.key.der")
         }
         _ => {
@@ -159,7 +163,7 @@ fn sign_rsa_asym_algo(
 
     let rng = ring::rand::SystemRandom::new();
 
-    let mut full_sign = [0u8; SPDM_MAX_ASYM_KEY_SIZE];
+    let mut full_sign = [0u8; SPDM_MAX_ASYM_SIG_SIZE];
     key_pair
         .sign(padding_alg, &rng, data, &mut full_sign[0..key_len])
         .ok()?;
@@ -168,6 +172,14 @@ fn sign_rsa_asym_algo(
         data_size: key_len as u16,
         data: full_sign,
     })
+}
+
+fn pqc_asym_sign(
+    _base_hash_algo: SpdmBaseHashAlgo,
+    _pqc_asym_algo: SpdmPqcAsymAlgo,
+    _data: &[u8],
+) -> Option<SpdmSignatureStruct> {
+    unimplemented!()
 }
 
 fn get_test_key_directory() -> PathBuf {

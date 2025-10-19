@@ -195,8 +195,8 @@ impl ResponderContext {
                         data: requester_context,
                     },
                     signature: SpdmSignatureStruct {
-                        data_size: self.common.negotiate_info.base_asym_sel.get_size(),
-                        data: [0xbb; SPDM_MAX_ASYM_KEY_SIZE],
+                        data_size: self.common.get_asym_sig_size(),
+                        data: [0xbb; SPDM_MAX_ASYM_SIG_SIZE],
                     },
                 },
             ),
@@ -212,8 +212,8 @@ impl ResponderContext {
         let used = writer.used();
 
         // generate signature
-        let base_asym_size = self.common.negotiate_info.base_asym_sel.get_size() as usize;
-        let temp_used = used - base_asym_size;
+        let signature_size = self.common.get_asym_sig_size() as usize;
+        let temp_used = used - signature_size;
 
         if self
             .common
@@ -237,7 +237,7 @@ impl ResponderContext {
         }
         let signature = signature.unwrap();
         // patch the message before send
-        writer.mut_used_slice()[(used - base_asym_size)..used].copy_from_slice(signature.as_ref());
+        writer.mut_used_slice()[(used - signature_size)..used].copy_from_slice(signature.as_ref());
 
         self.common.reset_message_b();
         self.common.reset_message_c();
@@ -279,9 +279,10 @@ impl ResponderContext {
             return Err(SPDM_STATUS_INVALID_STATE_LOCAL);
         }
 
-        crate::secret::asym_sign::sign(
+        crate::secret::spdm_asym_sign(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.pqc_asym_sel,
             message_sign.as_ref(),
         )
         .ok_or(SPDM_STATUS_CRYPTO_ERROR)
@@ -324,9 +325,10 @@ impl ResponderContext {
                 .ok_or(SPDM_STATUS_BUFFER_FULL)?;
         }
 
-        crate::secret::asym_sign::sign(
+        crate::secret::spdm_asym_sign(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.pqc_asym_sel,
             message_m1m2.as_ref(),
         )
         .ok_or(SPDM_STATUS_CRYPTO_ERROR)

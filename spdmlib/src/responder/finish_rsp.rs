@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
 use crate::common::session::SpdmSession;
-use crate::common::{ManagedBuffer12Sign, SpdmCodec};
+use crate::common::{ManagedBuffer12Sign, SpdmCodec, SpdmOpaqueStruct, MAX_SPDM_OPAQUE_SIZE};
 use crate::crypto;
 use crate::error::*;
 use crate::message::*;
@@ -80,9 +80,16 @@ impl ResponderContext {
         }
         let finish_req = finish_req.unwrap();
 
+        let opaque_total_size =
+            if self.common.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion14 {
+                2 + finish_req.opaque.data_size as usize
+            } else {
+                0usize
+            };
+
         if self
             .common
-            .append_message_f(false, session_id, &bytes[..4])
+            .append_message_f(false, session_id, &bytes[..4 + opaque_total_size])
             .is_err()
         {
             self.write_spdm_error(SpdmErrorCode::SpdmErrorUnspecified, 0, writer);
@@ -155,7 +162,7 @@ impl ResponderContext {
         }
 
         // verify HMAC with finished_key
-        let base_hash_size = self.common.negotiate_info.base_hash_sel.get_size() as usize;
+        let base_hash_size = self.common.get_hash_size() as usize;
 
         {
             let session = if let Some(session) = self.common.get_session_via_id(session_id) {
@@ -246,12 +253,12 @@ impl ResponderContext {
             },
             payload: SpdmMessagePayload::SpdmFinishResponse(SpdmFinishResponsePayload {
                 verify_data: SpdmDigestStruct {
-                    data_size: (self as &ResponderContext)
-                        .common
-                        .negotiate_info
-                        .base_hash_sel
-                        .get_size(),
+                    data_size: (self as &ResponderContext).common.get_hash_size(),
                     data: Box::new([0xcc; SPDM_MAX_HASH_SIZE]),
+                },
+                opaque: SpdmOpaqueStruct {
+                    data_size: 0,
+                    data: [0u8; MAX_SPDM_OPAQUE_SIZE],
                 },
             }),
         };
@@ -328,7 +335,7 @@ impl ResponderContext {
             writer.mut_used_slice()[(used - base_hash_size)..used].copy_from_slice(hmac.as_ref());
         } else if self
             .common
-            .append_message_f(false, session_id, &writer.used_slice()[..4])
+            .append_message_f(false, session_id, &writer.used_slice()[..used])
             .is_err()
         {
             error!("message_f add the message error");
@@ -370,6 +377,7 @@ impl ResponderContext {
                 Some(writer.used_slice()),
             );
         };
+        session.set_th2(th2.clone());
         if let Err(e) = session.generate_data_secret(spdm_version_sel, &th2) {
             self.write_spdm_error(SpdmErrorCode::SpdmErrorUnspecified, 0, writer);
             (Err(e), Some(writer.used_slice()))
@@ -389,14 +397,24 @@ impl ResponderContext {
                 .calc_rsp_transcript_hash(false, session.get_slot_id(), true, session)?;
 
         let peer_slot_id = self.common.runtime_info.get_peer_used_cert_chain_slot_id();
-        let peer_cert = &self.common.peer_info.peer_cert_chain[peer_slot_id as usize]
-            .as_ref()
-            .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
-            .data[(4usize + self.common.negotiate_info.base_hash_sel.get_size() as usize)
-            ..(self.common.peer_info.peer_cert_chain[peer_slot_id as usize]
+        let peer_cert = if peer_slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE_RSP {
+            let peer_pub_key = self
+                .common
+                .provision_info
+                .peer_pub_key
+                .as_ref()
+                .ok_or(SPDM_STATUS_INVALID_PARAMETER)?;
+            &peer_pub_key.data[..peer_pub_key.data_size as usize]
+        } else {
+            &self.common.peer_info.peer_cert_chain[peer_slot_id as usize]
                 .as_ref()
                 .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
-                .data_size as usize)];
+                .data[(4usize + self.common.get_hash_size() as usize)
+                ..(self.common.peer_info.peer_cert_chain[peer_slot_id as usize]
+                    .as_ref()
+                    .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
+                    .data_size as usize)]
+        };
         let mut transcript_sign = ManagedBuffer12Sign::default();
         if self.common.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion12 {
             transcript_sign.reset_message();
@@ -414,9 +432,17 @@ impl ResponderContext {
                 .ok_or(SPDM_STATUS_BUFFER_FULL)?;
         }
 
-        crypto::asym_verify::verify(
+        let verify_use_pub_key = if peer_slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE_RSP {
+            true
+        } else {
+            false
+        };
+
+        crypto::spdm_asym_verify(
             self.common.negotiate_info.base_hash_sel,
-            self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.req_asym_sel.to_base(),
+            self.common.negotiate_info.pqc_req_asym_sel.to_base(),
+            verify_use_pub_key,
             peer_cert,
             transcript_sign.as_ref(),
             signature,
@@ -434,15 +460,24 @@ impl ResponderContext {
                 .calc_rsp_transcript_hash(false, session.get_slot_id(), true, session)?;
 
         let peer_slot_id = self.common.runtime_info.get_peer_used_cert_chain_slot_id();
-        let peer_cert = &self.common.peer_info.peer_cert_chain[peer_slot_id as usize]
-            .as_ref()
-            .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
-            .data[(4usize + self.common.negotiate_info.base_hash_sel.get_size() as usize)
-            ..(self.common.peer_info.peer_cert_chain[peer_slot_id as usize]
+        let peer_cert = if peer_slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE_RSP {
+            let peer_pub_key = self
+                .common
+                .provision_info
+                .peer_pub_key
+                .as_ref()
+                .ok_or(SPDM_STATUS_INVALID_PARAMETER)?;
+            &peer_pub_key.data[..peer_pub_key.data_size as usize]
+        } else {
+            &self.common.peer_info.peer_cert_chain[peer_slot_id as usize]
                 .as_ref()
                 .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
-                .data_size as usize)];
-
+                .data[(4usize + self.common.get_hash_size() as usize)
+                ..(self.common.peer_info.peer_cert_chain[peer_slot_id as usize]
+                    .as_ref()
+                    .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
+                    .data_size as usize)]
+        };
         let mut transcript_hash_sign = ManagedBuffer12Sign::default();
         if self.common.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion12 {
             transcript_hash_sign.reset_message();
@@ -463,9 +498,13 @@ impl ResponderContext {
             return Err(SPDM_STATUS_INVALID_STATE_LOCAL);
         }
 
-        let res = crypto::asym_verify::verify(
+        let verify_use_pub_key = peer_slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE_RSP;
+
+        let res = crypto::spdm_asym_verify(
             self.common.negotiate_info.base_hash_sel,
-            self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.req_asym_sel.to_base(),
+            self.common.negotiate_info.pqc_req_asym_sel.to_base(),
+            verify_use_pub_key,
             peer_cert,
             transcript_hash_sign.as_ref(),
             signature,

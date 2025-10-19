@@ -4,7 +4,7 @@
 
 use crate::common::crypto_callback::FAKE_HMAC;
 use crate::common::device_io::{FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::SECRET_ASYM_IMPL_INSTANCE;
+use crate::common::secret_callback::*;
 use crate::common::transport::PciDoeTransportEncap;
 use crate::common::util::create_info;
 use codec::{Codec, Reader, Writer};
@@ -24,6 +24,7 @@ use alloc::sync::Arc;
 use core::ops::DerefMut;
 
 const SESSION_ID: u32 = 4294901758;
+#[cfg(not(feature = "chunk-cap"))]
 const CERT_PORTION_LEN: usize = 512;
 
 #[test]
@@ -226,7 +227,7 @@ fn test_receive_encapsulated_response_ack() {
         let encap_payload = SpdmGetCertificateRequestPayload {
             slot_id: 0,
             offset: 0,
-            length: CERT_PORTION_LEN as u16,
+            length: CERT_PORTION_LEN as u32,
         };
         assert!(encap_payload
             .spdm_encode(&mut context.common, &mut writer)
@@ -304,6 +305,7 @@ fn setup_test_context_and_session(
         RequesterContext::new(device_io, transport_encap, config_info, provision_info);
 
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     crypto::hmac::register(FAKE_HMAC.clone());
 
     context.common.negotiate_info.spdm_version_sel = SpdmVersion::SpdmVersion12;
@@ -331,6 +333,7 @@ fn setup_test_context_and_session(
     context.common.session[0].set_crypto_param(
         SpdmBaseHashAlgo::TPM_ALG_SHA_384,
         SpdmDheAlgo::SECP_384_R1,
+        SpdmKemAlgo::empty(),
         SpdmAeadAlgo::AES_256_GCM,
         SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
     );

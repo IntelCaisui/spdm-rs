@@ -2,19 +2,23 @@
 //
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
-use crate::common::device_io::{FakeSpdmDeviceIo, FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::*;
-use crate::common::transport::PciDoeTransportEncap;
-use crate::common::util::{create_info, get_rsp_cert_chain_buff};
-use spdmlib::common::session::{SpdmSession, SpdmSessionState};
-use spdmlib::common::SpdmConnectionState;
-use spdmlib::config;
-use spdmlib::protocol::*;
-use spdmlib::requester::RequesterContext;
-use spdmlib::{crypto, responder, secret};
-use spin::Mutex;
+#[cfg(feature = "hashed-transcript-data")]
 extern crate alloc;
-use alloc::sync::Arc;
+#[cfg(feature = "hashed-transcript-data")]
+use {
+    crate::common::device_io::{FakeSpdmDeviceIo, FakeSpdmDeviceIoReceve, SharedBuffer},
+    crate::common::secret_callback::*,
+    crate::common::transport::PciDoeTransportEncap,
+    crate::common::util::{create_info, get_rsp_cert_chain_buff},
+    alloc::sync::Arc,
+    spdmlib::common::session::{SpdmSession, SpdmSessionState},
+    spdmlib::common::SpdmConnectionState,
+    spdmlib::config,
+    spdmlib::protocol::*,
+    spdmlib::requester::RequesterContext,
+    spdmlib::{crypto, responder, secret},
+    spin::Mutex,
+};
 
 #[test]
 #[cfg(feature = "hashed-transcript-data")]
@@ -31,6 +35,7 @@ fn test_case0_send_receive_spdm_finish() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
         let mut responder = responder::ResponderContext::new(
             device_io_responder,
@@ -86,6 +91,7 @@ fn test_case0_send_receive_spdm_finish() {
         responder.common.session[0].set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
@@ -98,11 +104,12 @@ fn test_case0_send_receive_spdm_finish() {
             crypto::hash::hash_ctx_init(responder.common.negotiate_info.base_hash_sel).unwrap(),
         );
 
-        let dhe_secret = SpdmDheFinalKeyStruct {
+        let shared_secret = SpdmSharedSecretFinalKeyStruct {
             data_size: 48,
-            data: Box::new([0; SPDM_MAX_DHE_KEY_SIZE]),
+            data: Box::new([0; SPDM_MAX_SHARED_SECRET_SIZE]),
         };
-        let _ = responder.common.session[0].set_dhe_secret(SpdmVersion::SpdmVersion12, dhe_secret);
+        let _ = responder.common.session[0]
+            .set_shared_secret(SpdmVersion::SpdmVersion12, shared_secret);
         let _ = responder.common.session[0].generate_handshake_secret(
             SpdmVersion::SpdmVersion12,
             &SpdmDigestStruct {
@@ -166,6 +173,7 @@ fn test_case0_send_receive_spdm_finish() {
         requester.common.session[0].set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
@@ -174,11 +182,12 @@ fn test_case0_send_receive_spdm_finish() {
             crypto::hash::hash_ctx_init(requester.common.negotiate_info.base_hash_sel).unwrap(),
         );
 
-        let dhe_secret = SpdmDheFinalKeyStruct {
+        let shared_secret = SpdmSharedSecretFinalKeyStruct {
             data_size: 48,
-            data: Box::new([0; SPDM_MAX_DHE_KEY_SIZE]),
+            data: Box::new([0; SPDM_MAX_SHARED_SECRET_SIZE]),
         };
-        let _ = requester.common.session[0].set_dhe_secret(SpdmVersion::SpdmVersion12, dhe_secret);
+        let _ = requester.common.session[0]
+            .set_shared_secret(SpdmVersion::SpdmVersion12, shared_secret);
         let _ = requester.common.session[0].generate_handshake_secret(
             SpdmVersion::SpdmVersion12,
             &SpdmDigestStruct {
@@ -217,6 +226,7 @@ fn test_case1_send_receive_spdm_finish() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
         let mut responder = responder::ResponderContext::new(
             device_io_responder,
@@ -255,6 +265,7 @@ fn test_case1_send_receive_spdm_finish() {
         responder.common.session[0].set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
@@ -267,12 +278,13 @@ fn test_case1_send_receive_spdm_finish() {
             crypto::hash::hash_ctx_init(responder.common.negotiate_info.base_hash_sel).unwrap(),
         );
 
-        let dhe_secret = SpdmDheFinalKeyStruct {
+        let shared_secret = SpdmSharedSecretFinalKeyStruct {
             // different dhe secret will cause finish fail
             data_size: 48,
-            data: Box::new([1; SPDM_MAX_DHE_KEY_SIZE]),
+            data: Box::new([1; SPDM_MAX_SHARED_SECRET_SIZE]),
         };
-        let _ = responder.common.session[0].set_dhe_secret(SpdmVersion::SpdmVersion12, dhe_secret);
+        let _ = responder.common.session[0]
+            .set_shared_secret(SpdmVersion::SpdmVersion12, shared_secret);
         let _ = responder.common.session[0].generate_handshake_secret(
             SpdmVersion::SpdmVersion12,
             &SpdmDigestStruct {
@@ -323,6 +335,7 @@ fn test_case1_send_receive_spdm_finish() {
         requester.common.session[0].set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
@@ -331,11 +344,12 @@ fn test_case1_send_receive_spdm_finish() {
             crypto::hash::hash_ctx_init(requester.common.negotiate_info.base_hash_sel).unwrap(),
         );
 
-        let dhe_secret = SpdmDheFinalKeyStruct {
+        let shared_secret = SpdmSharedSecretFinalKeyStruct {
             data_size: 48,
-            data: Box::new([0; SPDM_MAX_DHE_KEY_SIZE]),
+            data: Box::new([0; SPDM_MAX_SHARED_SECRET_SIZE]),
         };
-        let _ = requester.common.session[0].set_dhe_secret(SpdmVersion::SpdmVersion12, dhe_secret);
+        let _ = requester.common.session[0]
+            .set_shared_secret(SpdmVersion::SpdmVersion12, shared_secret);
         let _ = requester.common.session[0].generate_handshake_secret(
             SpdmVersion::SpdmVersion12,
             &SpdmDigestStruct {

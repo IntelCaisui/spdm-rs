@@ -8,6 +8,7 @@ use crate::common::secret_callback::*;
 use crate::common::transport::PciDoeTransportEncap;
 use crate::common::util::create_info;
 use codec::{Codec, Writer};
+use spdmlib::common::opaque::{SpdmOpaqueStruct, MAX_SPDM_OPAQUE_SIZE};
 use spdmlib::common::session::{SpdmSession, SpdmSessionState};
 use spdmlib::common::SpdmCodec;
 use spdmlib::message::*;
@@ -34,6 +35,7 @@ fn test_case0_handle_spdm_finish() {
     );
 
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     crypto::hmac::register(FAKE_HMAC.clone());
 
     context.common.negotiate_info.base_asym_sel = SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P384;
@@ -43,6 +45,7 @@ fn test_case0_handle_spdm_finish() {
     context.common.session[0].set_crypto_param(
         SpdmBaseHashAlgo::TPM_ALG_SHA_384,
         SpdmDheAlgo::SECP_384_R1,
+        SpdmKemAlgo::empty(),
         SpdmAeadAlgo::AES_256_GCM,
         SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
     );
@@ -81,11 +84,15 @@ fn test_case0_handle_spdm_finish() {
             req_slot_id: 0,
             signature: SpdmSignatureStruct {
                 data_size: 512,
-                data: [0xa5u8; SPDM_MAX_ASYM_KEY_SIZE],
+                data: [0xa5u8; SPDM_MAX_ASYM_SIG_SIZE],
             },
             verify_data: SpdmDigestStruct {
                 data_size: 48,
                 data: Box::new([0x5au8; SPDM_MAX_HASH_SIZE]),
+            },
+            opaque: SpdmOpaqueStruct {
+                data_size: MAX_SPDM_OPAQUE_SIZE as u16,
+                data: [100u8; MAX_SPDM_OPAQUE_SIZE],
             },
         };
         assert!(value.spdm_encode(&mut context.common, &mut writer).is_ok());
@@ -94,7 +101,7 @@ fn test_case0_handle_spdm_finish() {
         bytes[2..].copy_from_slice(&finish_slic[0..1022]);
         let mut response_buffer = [0u8; spdmlib::config::MAX_SPDM_MSG_SIZE];
         let mut writer = Writer::init(&mut response_buffer);
-        let (status, send_buffer) = context.handle_spdm_finish(4294901758, bytes, &mut writer);
+        let (_status, _send_buffer) = context.handle_spdm_finish(4294901758, bytes, &mut writer);
     };
     executor::block_on(future);
 }
@@ -117,6 +124,7 @@ fn test_case1_handle_spdm_finish() {
     );
 
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     crypto::hmac::register(FAKE_HMAC.clone());
 
     context.common.negotiate_info.base_asym_sel = SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P384;
@@ -130,6 +138,7 @@ fn test_case1_handle_spdm_finish() {
     context.common.session[0].set_crypto_param(
         SpdmBaseHashAlgo::TPM_ALG_SHA_384,
         SpdmDheAlgo::SECP_384_R1,
+        SpdmKemAlgo::empty(),
         SpdmAeadAlgo::AES_256_GCM,
         SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
     );
@@ -165,11 +174,15 @@ fn test_case1_handle_spdm_finish() {
         req_slot_id: 0,
         signature: SpdmSignatureStruct {
             data_size: 96,
-            data: [0xa5u8; SPDM_MAX_ASYM_KEY_SIZE],
+            data: [0xa5u8; SPDM_MAX_ASYM_SIG_SIZE],
         },
         verify_data: SpdmDigestStruct {
             data_size: 48,
             data: Box::new([0x5au8; SPDM_MAX_HASH_SIZE]),
+        },
+        opaque: SpdmOpaqueStruct {
+            data_size: MAX_SPDM_OPAQUE_SIZE as u16,
+            data: [100u8; MAX_SPDM_OPAQUE_SIZE],
         },
     };
     assert!(value.spdm_encode(&mut context.common, &mut writer).is_ok());
@@ -179,7 +192,7 @@ fn test_case1_handle_spdm_finish() {
     bytes[2..].copy_from_slice(&finish_slic[0..1022]);
     let mut response_buffer = [0u8; MAX_SPDM_MSG_SIZE];
     let mut writer = Writer::init(&mut response_buffer);
-    let (status, send_buffer) = context.handle_spdm_finish(4294901758, bytes, &mut writer);
+    let (_status, _send_buffer) = context.handle_spdm_finish(4294901758, bytes, &mut writer);
 }
 
 #[test]
@@ -201,6 +214,7 @@ fn test_case2_handle_spdm_finish() {
     );
 
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     crypto::hmac::register(FAKE_HMAC.clone());
 
     context.common.negotiate_info.base_asym_sel = SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P384;
@@ -214,6 +228,7 @@ fn test_case2_handle_spdm_finish() {
     context.common.session[0].set_crypto_param(
         SpdmBaseHashAlgo::TPM_ALG_SHA_384,
         SpdmDheAlgo::SECP_384_R1,
+        SpdmKemAlgo::empty(),
         SpdmAeadAlgo::AES_256_GCM,
         SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
     );
@@ -249,11 +264,15 @@ fn test_case2_handle_spdm_finish() {
         req_slot_id: 0,
         signature: SpdmSignatureStruct {
             data_size: 96,
-            data: [0xa5u8; SPDM_MAX_ASYM_KEY_SIZE],
+            data: [0xa5u8; SPDM_MAX_ASYM_SIG_SIZE],
         },
         verify_data: SpdmDigestStruct {
             data_size: 48,
             data: Box::new([0x5au8; SPDM_MAX_HASH_SIZE]),
+        },
+        opaque: SpdmOpaqueStruct {
+            data_size: MAX_SPDM_OPAQUE_SIZE as u16,
+            data: [100u8; MAX_SPDM_OPAQUE_SIZE],
         },
     };
     assert!(value.spdm_encode(&mut context.common, &mut writer).is_ok());
@@ -263,7 +282,7 @@ fn test_case2_handle_spdm_finish() {
     bytes[2..].copy_from_slice(&finish_slic[0..1022]);
     let mut response_buffer = [0u8; MAX_SPDM_MSG_SIZE];
     let mut writer = Writer::init(&mut response_buffer);
-    let (status, send_buffer) = context.handle_spdm_finish(4294901758, bytes, &mut writer);
+    let (_status, _send_buffer) = context.handle_spdm_finish(4294901758, bytes, &mut writer);
 
     for session in context.common.session.iter() {
         assert_eq!(

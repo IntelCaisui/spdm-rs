@@ -4,7 +4,7 @@
 
 use crate::common::crypto_callback::FAKE_HMAC;
 use crate::common::device_io::{FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::SECRET_ASYM_IMPL_INSTANCE;
+use crate::common::secret_callback::*;
 use crate::common::transport::PciDoeTransportEncap;
 use crate::common::util::create_info;
 use codec::{Codec, Reader, Writer};
@@ -300,6 +300,7 @@ fn setup_test_context_and_session(
         ResponderContext::new(device_io, transport_encap, config_info, provision_info);
 
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     crypto::hmac::register(FAKE_HMAC.clone());
 
     context.common.negotiate_info.spdm_version_sel = SpdmVersion::SpdmVersion12;
@@ -318,6 +319,7 @@ fn setup_test_context_and_session(
     context.common.session[0].set_crypto_param(
         SpdmBaseHashAlgo::TPM_ALG_SHA_384,
         SpdmDheAlgo::SECP_384_R1,
+        SpdmKemAlgo::empty(),
         SpdmAeadAlgo::AES_256_GCM,
         SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
     );
@@ -330,7 +332,7 @@ fn write_spdm_get_digest_response(
     context: &mut ResponderContext,
     writer: &mut Writer,
 ) -> SpdmResult {
-    let digest_size = context.common.negotiate_info.base_hash_sel.get_size();
+    let digest_size = context.common.get_hash_size();
     let slot_mask = 1;
 
     let response = SpdmMessage {
@@ -374,7 +376,7 @@ fn write_spdm_get_certificate_response(
         },
         payload: SpdmMessagePayload::SpdmCertificateResponse(SpdmCertificateResponsePayload {
             slot_id: 0,
-            portion_length: CERT_PORTION_LEN as u16,
+            portion_length: CERT_PORTION_LEN as u32,
             remainder_length: 0x200,
             cert_chain: [0xffu8; CERT_PORTION_LEN],
         }),

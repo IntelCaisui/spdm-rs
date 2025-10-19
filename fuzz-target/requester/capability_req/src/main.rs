@@ -3,12 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
 use fuzzlib::{spdmlib::protocol::SpdmVersion, *};
-use spdmlib::common::SpdmConnectionState;
 use spin::Mutex;
 extern crate alloc;
-use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::ops::DerefMut;
 
 async fn fuzz_send_receive_spdm_capability(fuzzdata: Arc<Vec<u8>>) {
     let (req_config_info, req_provision_info) = req_create_info();
@@ -16,6 +13,7 @@ async fn fuzz_send_receive_spdm_capability(fuzzdata: Arc<Vec<u8>>) {
     let shared_buffer = SharedBuffer::new();
 
     spdmlib::secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    spdmlib::secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
     let pcidoe_transport_encap2 = Arc::new(Mutex::new(PciDoeTransportEncap {}));
     let mut device_io_requester = fake_device_io::FakeSpdmDeviceIo::new(Arc::new(shared_buffer));

@@ -39,6 +39,7 @@ impl Default for SpdmSessionState {
 pub struct SpdmSessionCryptoParam {
     pub base_hash_algo: SpdmBaseHashAlgo,
     pub dhe_algo: SpdmDheAlgo,
+    pub kem_algo: SpdmKemAlgo,
     pub aead_algo: SpdmAeadAlgo,
     pub key_schedule_algo: SpdmKeyScheduleAlgo,
 }
@@ -48,6 +49,7 @@ impl Codec for SpdmSessionCryptoParam {
         let mut size = 0;
         size += self.base_hash_algo.encode(writer)?;
         size += self.dhe_algo.encode(writer)?;
+        size += self.kem_algo.encode(writer)?;
         size += self.aead_algo.encode(writer)?;
         size += self.key_schedule_algo.encode(writer)?;
         Ok(size)
@@ -57,6 +59,7 @@ impl Codec for SpdmSessionCryptoParam {
         Some(Self {
             base_hash_algo: SpdmBaseHashAlgo::read(reader)?,
             dhe_algo: SpdmDheAlgo::read(reader)?,
+            kem_algo: SpdmKemAlgo::read(reader)?,
             aead_algo: SpdmAeadAlgo::read(reader)?,
             key_schedule_algo: SpdmKeyScheduleAlgo::read(reader)?,
         })
@@ -64,16 +67,16 @@ impl Codec for SpdmSessionCryptoParam {
 }
 
 #[derive(Debug, Clone, Default, Zeroize, ZeroizeOnDrop, Eq, PartialEq)]
-pub struct SpdmSessionDheSecretRoot {
-    pub dhe_secret: SpdmDheFinalKeyStruct,
+pub struct SpdmSessionSharedSecretRoot {
+    pub shared_secret: SpdmSharedSecretFinalKeyStruct,
     pub handshake_secret: SpdmHandshakeSecretStruct,
     pub master_secret: SpdmMasterSecretStruct,
 }
 
-impl Codec for SpdmSessionDheSecretRoot {
+impl Codec for SpdmSessionSharedSecretRoot {
     fn encode(&self, writer: &mut Writer) -> Result<usize, codec::EncodeErr> {
         let mut size = 0;
-        size += self.dhe_secret.encode(writer)?;
+        size += self.shared_secret.encode(writer)?;
         size += self.handshake_secret.encode(writer)?;
         size += self.master_secret.encode(writer)?;
         Ok(size)
@@ -81,7 +84,7 @@ impl Codec for SpdmSessionDheSecretRoot {
 
     fn read(reader: &mut Reader) -> Option<Self> {
         Some(Self {
-            dhe_secret: SpdmDheFinalKeyStruct::read(reader)?,
+            shared_secret: SpdmSharedSecretFinalKeyStruct::read(reader)?,
             handshake_secret: SpdmHandshakeSecretStruct::read(reader)?,
             master_secret: SpdmMasterSecretStruct::read(reader)?,
         })
@@ -210,6 +213,7 @@ pub struct SpdmSessionRuntimeInfo {
     pub message_k: ManagedBufferK,
     pub message_f: ManagedBufferF,
     pub message_m: ManagedBufferM,
+    pub vdm_message_transcript_before_finish: Option<ManagedVdmBuffer>, // for transcript that to be appended before finish to replace hash of cert chain
 }
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
@@ -222,6 +226,7 @@ pub struct SpdmSessionRuntimeInfo {
     pub req_cert_hash: Option<SpdmDigestStruct>,
     pub digest_context_th: Option<SpdmHashCtx>,
     pub digest_context_l1l2: Option<SpdmHashCtx>,
+    pub vdm_message_transcript_before_finish: Option<ManagedVdmBuffer>, // for transcript that to be appended before finish to replace hash of cert chain
 }
 
 #[cfg(not(feature = "hashed-transcript-data"))]
@@ -259,6 +264,15 @@ impl Codec for SpdmSessionRuntimeInfo {
         size += self.message_k.encode(writer)?;
         size += self.message_f.encode(writer)?;
         size += self.message_m.encode(writer)?;
+        match &self.vdm_message_transcript_before_finish {
+            Some(val) => {
+                size += 1u8.encode(writer)?;
+                size += val.encode(writer)?;
+            }
+            None => {
+                size += 0u8.encode(writer)?;
+            }
+        }
         Ok(size)
     }
 
@@ -282,6 +296,11 @@ impl Codec for SpdmSessionRuntimeInfo {
         let message_k = ManagedBufferK::read(reader)?;
         let message_f = ManagedBufferF::read(reader)?;
         let message_m = ManagedBufferM::read(reader)?;
+        let vdm_message_transcript_before_finish = if u8::read(reader)? != 0 {
+            Some(ManagedVdmBuffer::read(reader)?)
+        } else {
+            None
+        };
         Some(Self {
             psk_hint,
             message_a,
@@ -290,6 +309,7 @@ impl Codec for SpdmSessionRuntimeInfo {
             message_k,
             message_f,
             message_m,
+            vdm_message_transcript_before_finish,
         })
     }
 }
@@ -345,6 +365,15 @@ impl Codec for SpdmSessionRuntimeInfo {
                 size += 0u8.encode(writer)?;
             }
         }
+        match &self.vdm_message_transcript_before_finish {
+            Some(val) => {
+                size += 1u8.encode(writer)?;
+                size += val.encode(writer)?;
+            }
+            None => {
+                size += 0u8.encode(writer)?;
+            }
+        }
         Ok(size)
     }
 
@@ -376,6 +405,11 @@ impl Codec for SpdmSessionRuntimeInfo {
         } else {
             None
         };
+        let vdm_message_transcript_before_finish = if u8::read(reader)? != 0 {
+            Some(ManagedVdmBuffer::read(reader)?)
+        } else {
+            None
+        };
         Some(Self {
             psk_hint,
             message_a,
@@ -384,6 +418,7 @@ impl Codec for SpdmSessionRuntimeInfo {
             req_cert_hash,
             digest_context_th,
             digest_context_l1l2,
+            vdm_message_transcript_before_finish,
         })
     }
 }
@@ -395,7 +430,7 @@ pub struct SpdmSession {
     mut_auth_requested: SpdmKeyExchangeMutAuthAttributes,
     session_state: SpdmSessionState,
     crypto_param: SpdmSessionCryptoParam,
-    dhe_secret_root: SpdmSessionDheSecretRoot,
+    shared_secret_root: SpdmSessionSharedSecretRoot,
     handshake_secret: SpdmSessionHandshakeSecret,
     application_secret: SpdmSessionApplicationSecret,
     application_secret_backup: SpdmSessionApplicationSecret,
@@ -404,6 +439,8 @@ pub struct SpdmSession {
     transport_param: SpdmSessionTransportParam,
     pub runtime_info: SpdmSessionRuntimeInfo,
     key_schedule: SpdmKeySchedule,
+    th1: SpdmDigestStruct,
+    th2: SpdmDigestStruct,
     slot_id: u8,
     pub heartbeat_period: u8, // valid only when HEARTBEAT cap set
     pub secure_spdm_version_sel: SecuredMessageVersion,
@@ -423,7 +460,7 @@ impl Codec for SpdmSession {
         size += self.mut_auth_requested.encode(writer)?;
         size += self.session_state.encode(writer)?;
         size += self.crypto_param.encode(writer)?;
-        size += self.dhe_secret_root.encode(writer)?;
+        size += self.shared_secret_root.encode(writer)?;
         size += self.handshake_secret.encode(writer)?;
         size += self.application_secret.encode(writer)?;
         size += self.application_secret_backup.encode(writer)?;
@@ -432,6 +469,8 @@ impl Codec for SpdmSession {
         size += self.transport_param.encode(writer)?;
         size += self.runtime_info.encode(writer)?;
         size += self.key_schedule.encode(writer)?;
+        size += self.th1.encode(writer)?;
+        size += self.th2.encode(writer)?;
         size += self.slot_id.encode(writer)?;
         size += self.heartbeat_period.encode(writer)?;
         size += self.secure_spdm_version_sel.encode(writer)?;
@@ -445,7 +484,7 @@ impl Codec for SpdmSession {
             mut_auth_requested: SpdmKeyExchangeMutAuthAttributes::read(reader)?,
             session_state: SpdmSessionState::read(reader)?,
             crypto_param: SpdmSessionCryptoParam::read(reader)?,
-            dhe_secret_root: SpdmSessionDheSecretRoot::read(reader)?,
+            shared_secret_root: SpdmSessionSharedSecretRoot::read(reader)?,
             handshake_secret: SpdmSessionHandshakeSecret::read(reader)?,
             application_secret: SpdmSessionApplicationSecret::read(reader)?,
             application_secret_backup: SpdmSessionApplicationSecret::read(reader)?,
@@ -454,6 +493,8 @@ impl Codec for SpdmSession {
             transport_param: SpdmSessionTransportParam::read(reader)?,
             runtime_info: SpdmSessionRuntimeInfo::read(reader)?,
             key_schedule: SpdmKeySchedule::read(reader)?,
+            th1: SpdmDigestStruct::read(reader)?,
+            th2: SpdmDigestStruct::read(reader)?,
             slot_id: u8::read(reader)?,
             heartbeat_period: u8::read(reader)?,
             secure_spdm_version_sel: SecuredMessageVersion::read(reader)?,
@@ -468,7 +509,7 @@ impl SpdmSession {
             use_psk: false,
             session_state: SpdmSessionState::default(),
             crypto_param: SpdmSessionCryptoParam::default(),
-            dhe_secret_root: SpdmSessionDheSecretRoot::default(),
+            shared_secret_root: SpdmSessionSharedSecretRoot::default(),
             handshake_secret: SpdmSessionHandshakeSecret::default(),
             application_secret: SpdmSessionApplicationSecret::default(),
             application_secret_backup: SpdmSessionApplicationSecret::default(),
@@ -477,6 +518,8 @@ impl SpdmSession {
             transport_param: SpdmSessionTransportParam::default(),
             runtime_info: SpdmSessionRuntimeInfo::default(),
             key_schedule: SpdmKeySchedule::new(),
+            th1: SpdmDigestStruct::default(),
+            th2: SpdmDigestStruct::default(),
             slot_id: 0,
             heartbeat_period: 0,
             secure_spdm_version_sel: SecuredMessageVersion::default(),
@@ -513,7 +556,7 @@ impl SpdmSession {
         self.use_psk = false;
         self.session_state = SpdmSessionState::default();
         self.crypto_param = SpdmSessionCryptoParam::default();
-        self.dhe_secret_root = SpdmSessionDheSecretRoot::default();
+        self.shared_secret_root = SpdmSessionSharedSecretRoot::default();
         self.handshake_secret = SpdmSessionHandshakeSecret::default();
         self.application_secret = SpdmSessionApplicationSecret::default();
         self.application_secret_backup = SpdmSessionApplicationSecret::default();
@@ -563,18 +606,34 @@ impl SpdmSession {
         self.slot_id
     }
 
-    pub fn set_dhe_secret(
+    pub fn set_th1(&mut self, th1: SpdmDigestStruct) {
+        self.th1 = th1;
+    }
+
+    pub fn get_th1(&self) -> SpdmDigestStruct {
+        self.th1.clone()
+    }
+
+    pub fn set_th2(&mut self, th2: SpdmDigestStruct) {
+        self.th2 = th2;
+    }
+
+    pub fn get_th2(&self) -> SpdmDigestStruct {
+        self.th2.clone()
+    }
+
+    pub fn set_shared_secret(
         &mut self,
         spdm_version: SpdmVersion,
-        dhe_secret: SpdmDheFinalKeyStruct,
+        shared_secret: SpdmSharedSecretFinalKeyStruct,
     ) -> SpdmResult {
-        self.dhe_secret_root.dhe_secret = dhe_secret; // take the ownership here!
+        self.shared_secret_root.shared_secret = shared_secret; // take the ownership here!
 
-        // generate dhe_secret_root.handshake_secret and dhe_secret_root.master_secret
+        // generate shared_secret_root.handshake_secret and shared_secret_root.master_secret
         let handshake_secret = if let Some(hs) = self.key_schedule.derive_handshake_secret(
             spdm_version,
             self.crypto_param.base_hash_algo,
-            &self.dhe_secret_root.dhe_secret,
+            &self.shared_secret_root.shared_secret,
         ) {
             hs
         } else {
@@ -591,16 +650,16 @@ impl SpdmSession {
             return Err(SPDM_STATUS_CRYPTO_ERROR);
         };
 
-        self.dhe_secret_root.handshake_secret = handshake_secret;
-        self.dhe_secret_root.master_secret = master_secret;
+        self.shared_secret_root.handshake_secret = handshake_secret;
+        self.shared_secret_root.master_secret = master_secret;
 
         debug!(
             "!!! handshake_secret !!!: {:02x?}\n",
-            self.dhe_secret_root.handshake_secret.as_ref()
+            self.shared_secret_root.handshake_secret.as_ref()
         );
         debug!(
             "!!! master_secret !!!: {:02x?}\n",
-            self.dhe_secret_root.master_secret.as_ref()
+            self.shared_secret_root.master_secret.as_ref()
         );
 
         Ok(())
@@ -614,11 +673,13 @@ impl SpdmSession {
         &mut self,
         base_hash_algo: SpdmBaseHashAlgo,
         dhe_algo: SpdmDheAlgo,
+        kem_algo: SpdmKemAlgo,
         aead_algo: SpdmAeadAlgo,
         key_schedule_algo: SpdmKeyScheduleAlgo,
     ) {
         self.crypto_param.base_hash_algo = base_hash_algo;
         self.crypto_param.dhe_algo = dhe_algo;
+        self.crypto_param.kem_algo = kem_algo;
         self.crypto_param.aead_algo = aead_algo;
         self.crypto_param.key_schedule_algo = key_schedule_algo;
     }
@@ -662,7 +723,7 @@ impl SpdmSession {
                 if self.use_psk {
                     None
                 } else {
-                    Some(&self.dhe_secret_root.handshake_secret)
+                    Some(&self.shared_secret_root.handshake_secret)
                 },
                 self.runtime_info.psk_hint.as_ref(),
                 th1.as_ref(),
@@ -683,7 +744,7 @@ impl SpdmSession {
                 if self.use_psk {
                     None
                 } else {
-                    Some(&self.dhe_secret_root.handshake_secret)
+                    Some(&self.shared_secret_root.handshake_secret)
                 },
                 self.runtime_info.psk_hint.as_ref(),
                 th1.as_ref(),
@@ -799,7 +860,7 @@ impl SpdmSession {
                 if self.use_psk {
                     None
                 } else {
-                    Some(&self.dhe_secret_root.master_secret)
+                    Some(&self.shared_secret_root.master_secret)
                 },
                 self.runtime_info.psk_hint.as_ref(),
                 th2.as_ref(),
@@ -816,7 +877,7 @@ impl SpdmSession {
                 if self.use_psk {
                     None
                 } else {
-                    Some(&self.dhe_secret_root.master_secret)
+                    Some(&self.shared_secret_root.master_secret)
                 },
                 self.runtime_info.psk_hint.as_ref(),
                 th2.as_ref(),
@@ -892,7 +953,7 @@ impl SpdmSession {
                 if self.use_psk {
                     None
                 } else {
-                    Some(&self.dhe_secret_root.master_secret)
+                    Some(&self.shared_secret_root.master_secret)
                 },
                 self.runtime_info.psk_hint.as_ref(),
             ) {
@@ -1460,17 +1521,18 @@ mod tests_session {
         session.set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
         session.set_session_state(crate::common::session::SpdmSessionState::SpdmSessionHandshaking);
         std::println!("session.session_id::{:?}", session.session_id);
         assert!(session
-            .set_dhe_secret(
+            .set_shared_secret(
                 SpdmVersion::SpdmVersion12,
-                SpdmDheFinalKeyStruct {
+                SpdmSharedSecretFinalKeyStruct {
                     data_size: 5,
-                    data: Box::new([100u8; SPDM_MAX_DHE_KEY_SIZE])
+                    data: Box::new([100u8; SPDM_MAX_SHARED_SECRET_SIZE])
                 }
             )
             .is_ok());
@@ -1527,17 +1589,18 @@ mod tests_session {
         session.set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
         session.set_session_state(crate::common::session::SpdmSessionState::SpdmSessionHandshaking);
         std::println!("session.session_id::{:?}", session.session_id);
         assert!(session
-            .set_dhe_secret(
+            .set_shared_secret(
                 SpdmVersion::SpdmVersion12,
-                SpdmDheFinalKeyStruct {
+                SpdmSharedSecretFinalKeyStruct {
                     data_size: 5,
-                    data: Box::new([100u8; SPDM_MAX_DHE_KEY_SIZE])
+                    data: Box::new([100u8; SPDM_MAX_SHARED_SECRET_SIZE])
                 }
             )
             .is_ok());
@@ -1594,17 +1657,18 @@ mod tests_session {
         session.set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
         session.set_session_state(crate::common::session::SpdmSessionState::SpdmSessionHandshaking);
         std::println!("session.session_id::{:?}", session.session_id);
         assert!(session
-            .set_dhe_secret(
+            .set_shared_secret(
                 SpdmVersion::SpdmVersion12,
-                SpdmDheFinalKeyStruct {
+                SpdmSharedSecretFinalKeyStruct {
                     data_size: 5,
-                    data: Box::new([100u8; SPDM_MAX_DHE_KEY_SIZE])
+                    data: Box::new([100u8; SPDM_MAX_SHARED_SECRET_SIZE])
                 }
             )
             .is_ok());
@@ -1662,17 +1726,18 @@ mod tests_session {
         session.set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
         session.set_session_state(crate::common::session::SpdmSessionState::SpdmSessionHandshaking);
         std::println!("session.session_id::{:?}", session.session_id);
         assert!(session
-            .set_dhe_secret(
+            .set_shared_secret(
                 SpdmVersion::SpdmVersion12,
-                SpdmDheFinalKeyStruct {
+                SpdmSharedSecretFinalKeyStruct {
                     data_size: 5,
-                    data: Box::new([100u8; SPDM_MAX_DHE_KEY_SIZE])
+                    data: Box::new([100u8; SPDM_MAX_SHARED_SECRET_SIZE])
                 }
             )
             .is_ok());
@@ -1751,6 +1816,7 @@ mod tests_session {
         session.set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
@@ -1800,6 +1866,7 @@ mod tests_session {
         session.set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
@@ -1807,11 +1874,11 @@ mod tests_session {
         session.transport_param.sequence_number_count = 1;
         std::println!("session.session_id::{:?}", session.session_id);
         assert!(session
-            .set_dhe_secret(
+            .set_shared_secret(
                 SpdmVersion::SpdmVersion12,
-                SpdmDheFinalKeyStruct {
+                SpdmSharedSecretFinalKeyStruct {
                     data_size: 5,
-                    data: Box::new([100u8; SPDM_MAX_DHE_KEY_SIZE])
+                    data: Box::new([100u8; SPDM_MAX_SHARED_SECRET_SIZE])
                 }
             )
             .is_ok());

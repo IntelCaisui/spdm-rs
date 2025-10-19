@@ -2,17 +2,29 @@
 //
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
-use crate::common::device_io::{self, FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::SECRET_ASYM_IMPL_INSTANCE;
-use crate::common::transport::PciDoeTransportEncap;
-use crate::common::util::{create_info, ResponderRunner, TestCase, TestSpdmMessage};
-use codec::{Codec, Writer};
-use spdmlib::message::*;
-use spdmlib::protocol::*;
-use spdmlib::{config, responder, secret};
-use spin::Mutex;
+#[cfg(not(feature = "chunk-cap"))]
+use {
+    crate::common::device_io,
+    crate::common::util::{ResponderRunner, TestCase, TestSpdmMessage},
+};
+
+#[cfg(any(not(feature = "chunk-cap"), feature = "hashed-transcript-data"))]
+use crate::common::util::create_info;
+
+#[cfg(feature = "hashed-transcript-data")]
 extern crate alloc;
-use alloc::sync::Arc;
+#[cfg(feature = "hashed-transcript-data")]
+use {
+    crate::common::device_io::{FakeSpdmDeviceIoReceve, SharedBuffer},
+    crate::common::secret_callback::*,
+    crate::common::transport::PciDoeTransportEncap,
+    alloc::sync::Arc,
+    codec::{Codec, Writer},
+    spdmlib::message::*,
+    spdmlib::protocol::*,
+    spdmlib::{config, responder, secret},
+    spin::Mutex,
+};
 
 #[test]
 #[cfg(feature = "hashed-transcript-data")]
@@ -28,6 +40,7 @@ fn test_case0_handle_spdm_digest() {
         ))));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
         let mut context = responder::ResponderContext::new(
             socket_io_transport,
@@ -37,7 +50,7 @@ fn test_case0_handle_spdm_digest() {
         );
         context.common.provision_info.my_cert_chain = [
             Some(SpdmCertChainBuffer {
-                data_size: 512u16,
+                data_size: 512u32,
                 data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
             }),
             None,

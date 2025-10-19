@@ -97,7 +97,7 @@ impl ResponderContext {
         let slot_id = get_measurements.slot_id as usize;
         let requester_context = get_measurements.context;
 
-        let signature_size = self.common.negotiate_info.base_asym_sel.get_size();
+        let signature_size = self.common.get_asym_sig_size();
 
         if get_measurements
             .measurement_attributes
@@ -137,7 +137,6 @@ impl ResponderContext {
             self.common.negotiate_info.measurement_specification_sel;
         let runtime_content_change_support = self.common.config_info.runtime_content_change_support;
         let content_changed = self.common.runtime_info.content_changed;
-        let base_asym_sel = self.common.negotiate_info.base_asym_sel;
 
         if self
             .common
@@ -246,7 +245,7 @@ impl ResponderContext {
                     requester_context,
                     signature: SpdmSignatureStruct {
                         data_size: signature_size,
-                        data: [0x60u8; SPDM_MAX_ASYM_KEY_SIZE],
+                        data: [0x60u8; SPDM_MAX_ASYM_SIG_SIZE],
                     },
                     measurement_operation: get_measurements.measurement_operation,
                 },
@@ -268,8 +267,8 @@ impl ResponderContext {
             .measurement_attributes
             .contains(SpdmMeasurementAttributes::SIGNATURE_REQUESTED)
         {
-            let base_asym_size = base_asym_sel.get_size() as usize;
-            let temp_used = used - base_asym_size;
+            let signature_size = self.common.get_asym_sig_size() as usize;
+            let temp_used = used - signature_size;
 
             if self
                 .common
@@ -293,7 +292,7 @@ impl ResponderContext {
             }
             let signature = signature.unwrap();
             // patch the message before send
-            writer.mut_used_slice()[(used - base_asym_size)..used]
+            writer.mut_used_slice()[(used - signature_size)..used]
                 .copy_from_slice(signature.as_ref());
 
             self.common.reset_message_m(session_id);
@@ -362,9 +361,10 @@ impl ResponderContext {
             return Err(SPDM_STATUS_INVALID_STATE_LOCAL);
         }
 
-        crate::secret::asym_sign::sign(
+        crate::secret::spdm_asym_sign(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.pqc_asym_sel,
             message_sign.as_ref(),
         )
         .ok_or(SPDM_STATUS_CRYPTO_ERROR)
@@ -427,9 +427,10 @@ impl ResponderContext {
                 .ok_or(SPDM_STATUS_BUFFER_FULL)?;
         }
 
-        crate::secret::asym_sign::sign(
+        crate::secret::spdm_asym_sign(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.pqc_asym_sel,
             message_l1l2.as_ref(),
         )
         .ok_or(SPDM_STATUS_CRYPTO_ERROR)

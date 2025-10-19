@@ -7,6 +7,9 @@ mod crypto_callbacks;
 mod x509v3;
 pub use x509v3::*;
 
+extern crate alloc;
+use alloc::boxed::Box;
+
 #[cfg(not(feature = "spdm-ring"))]
 mod crypto_null;
 
@@ -15,7 +18,8 @@ mod spdm_ring;
 
 pub use crypto_callbacks::{
     SpdmAead, SpdmAsymVerify, SpdmCertOperation, SpdmCryptoRandom, SpdmDhe, SpdmDheKeyExchange,
-    SpdmHash, SpdmHkdf, SpdmHmac,
+    SpdmHash, SpdmHkdf, SpdmHmac, SpdmKemCipherTextExchange, SpdmKemDecap, SpdmKemEncap,
+    SpdmKemEncapKeyExchange, SpdmPqcAsymVerify,
 };
 
 #[cfg(feature = "hashed-transcript-data")]
@@ -27,7 +31,10 @@ static CRYPTO_HASH: OnceCell<SpdmHash> = OnceCell::uninit();
 static CRYPTO_HMAC: OnceCell<SpdmHmac> = OnceCell::uninit();
 static CRYPTO_AEAD: OnceCell<SpdmAead> = OnceCell::uninit();
 static CRYPTO_ASYM_VERIFY: OnceCell<SpdmAsymVerify> = OnceCell::uninit();
+static CRYPTO_PQC_ASYM_VERIFY: OnceCell<SpdmPqcAsymVerify> = OnceCell::uninit();
 static CRYPTO_DHE: OnceCell<SpdmDhe> = OnceCell::uninit();
+static CRYPTO_KEM_DECAP: OnceCell<SpdmKemDecap> = OnceCell::uninit();
+static CRYPTO_KEM_ENCAP: OnceCell<SpdmKemEncap> = OnceCell::uninit();
 static CRYPTO_CERT_OPERATION: OnceCell<SpdmCertOperation> = OnceCell::uninit();
 static CRYPTO_HKDF: OnceCell<SpdmHkdf> = OnceCell::uninit();
 static CRYPTO_RAND: OnceCell<SpdmCryptoRandom> = OnceCell::uninit();
@@ -204,6 +211,7 @@ pub mod asym_verify {
     pub fn verify(
         base_hash_algo: SpdmBaseHashAlgo,
         base_asym_algo: SpdmBaseAsymAlgo,
+        raw_pub_key_used: bool,
         public_cert_der: &[u8],
         data: &[u8],
         signature: &SpdmSignatureStruct,
@@ -214,6 +222,43 @@ pub mod asym_verify {
             .verify_cb)(
             base_hash_algo,
             base_asym_algo,
+            raw_pub_key_used,
+            public_cert_der,
+            data,
+            signature,
+        )
+    }
+}
+
+pub mod pqc_asym_verify {
+    use super::CRYPTO_PQC_ASYM_VERIFY;
+    use crate::crypto::SpdmPqcAsymVerify;
+    use crate::error::{SpdmResult, SPDM_STATUS_INVALID_STATE_LOCAL};
+    use crate::protocol::{SpdmBaseHashAlgo, SpdmPqcAsymAlgo, SpdmSignatureStruct};
+
+    #[cfg(not(any(feature = "spdm-ring")))]
+    use super::crypto_null::pqc_asym_verify_impl::DEFAULT;
+
+    #[cfg(feature = "spdm-ring")]
+    use super::spdm_ring::pqc_asym_verify_impl::DEFAULT;
+
+    pub fn register(context: SpdmPqcAsymVerify) -> bool {
+        CRYPTO_PQC_ASYM_VERIFY.try_get_or_init(|| context).is_ok()
+    }
+
+    pub fn verify(
+        base_hash_algo: SpdmBaseHashAlgo,
+        pqc_asym_algo: SpdmPqcAsymAlgo,
+        public_cert_der: &[u8],
+        data: &[u8],
+        signature: &SpdmSignatureStruct,
+    ) -> SpdmResult {
+        (CRYPTO_PQC_ASYM_VERIFY
+            .try_get_or_init(|| DEFAULT.clone())
+            .map_err(|_| SPDM_STATUS_INVALID_STATE_LOCAL)?
+            .verify_cb)(
+            base_hash_algo,
+            pqc_asym_algo,
             public_cert_der,
             data,
             signature,
@@ -246,6 +291,66 @@ pub mod dhe {
             .try_get_or_init(|| DEFAULT.clone())
             .ok()?
             .generate_key_pair_cb)(dhe_algo)
+    }
+}
+
+pub mod kem_decap {
+    extern crate alloc;
+    use alloc::boxed::Box;
+
+    use super::CRYPTO_KEM_DECAP;
+    use crate::crypto::{SpdmKemDecap, SpdmKemEncapKeyExchange};
+    use crate::protocol::{SpdmKemAlgo, SpdmKemEncapKeyStruct};
+
+    #[cfg(not(any(feature = "spdm-ring")))]
+    use super::crypto_null::kem_impl::DEFAULT_DECAP;
+
+    #[cfg(feature = "spdm-ring")]
+    use super::spdm_ring::kem_impl::DEFAULT_DECAP;
+
+    pub fn register(context: SpdmKemDecap) -> bool {
+        CRYPTO_KEM_DECAP.try_init_once(|| context).is_ok()
+    }
+
+    pub fn generate_key_pair(
+        kem_algo: SpdmKemAlgo,
+    ) -> Option<(
+        SpdmKemEncapKeyStruct,
+        Box<dyn SpdmKemEncapKeyExchange + Send>,
+    )> {
+        (CRYPTO_KEM_DECAP
+            .try_get_or_init(|| DEFAULT_DECAP.clone())
+            .ok()?
+            .generate_key_pair_cb)(kem_algo)
+    }
+}
+
+pub mod kem_encap {
+    extern crate alloc;
+    use alloc::boxed::Box;
+
+    use super::CRYPTO_KEM_ENCAP;
+    use crate::crypto::{SpdmKemCipherTextExchange, SpdmKemEncap};
+    use crate::protocol::{SpdmKemAlgo, SpdmKemEncapKeyStruct};
+
+    #[cfg(not(any(feature = "spdm-ring")))]
+    use super::crypto_null::kem_impl::DEFAULT_ENCAP;
+
+    #[cfg(feature = "spdm-ring")]
+    use super::spdm_ring::kem_impl::DEFAULT_ENCAP;
+
+    pub fn register(context: SpdmKemEncap) -> bool {
+        CRYPTO_KEM_ENCAP.try_init_once(|| context).is_ok()
+    }
+
+    pub fn new_key(
+        kem_algo: SpdmKemAlgo,
+        kem_encap_key: &SpdmKemEncapKeyStruct,
+    ) -> Option<Box<dyn SpdmKemCipherTextExchange + Send>> {
+        (CRYPTO_KEM_ENCAP
+            .try_get_or_init(|| DEFAULT_ENCAP.clone())
+            .ok()?
+            .new_key_cb)(kem_algo, kem_encap_key)
     }
 }
 
@@ -392,6 +497,49 @@ pub mod rand {
 }
 #[cfg(feature = "fips")]
 pub mod fips;
+
+// Add this import at the top of the file (after other use statements)
+use crate::error::SpdmResult;
+use crate::protocol::{SpdmBaseAsymAlgo, SpdmBaseHashAlgo, SpdmPqcAsymAlgo, SpdmSignatureStruct};
+
+pub fn spdm_asym_verify(
+    base_hash_algo: SpdmBaseHashAlgo,
+    base_asym_algo: SpdmBaseAsymAlgo,
+    pqc_asym_algo: SpdmPqcAsymAlgo,
+    raw_pub_key_used: bool,
+    public_cert_der: &[u8],
+    data: &[u8],
+    signature: &SpdmSignatureStruct,
+) -> SpdmResult {
+    if pqc_asym_algo != SpdmPqcAsymAlgo::empty() {
+        self::pqc_asym_verify::verify(
+            base_hash_algo,
+            pqc_asym_algo,
+            public_cert_der,
+            data,
+            signature,
+        )
+    } else {
+        self::asym_verify::verify(
+            base_hash_algo,
+            base_asym_algo,
+            raw_pub_key_used,
+            public_cert_der,
+            data,
+            signature,
+        )
+    }
+}
+
+pub enum SpdmReqExchangeContext {
+    SpdmReqExchangeContextDhe(Box<dyn SpdmDheKeyExchange + Send>),
+    SpdmReqExchangeContextKem(Box<dyn SpdmKemEncapKeyExchange + Send>),
+}
+
+pub enum SpdmRspExchangeContext {
+    SpdmRspExchangeContextDhe(Box<dyn SpdmDheKeyExchange + Send>),
+    SpdmRspExchangeContextKem(Box<dyn SpdmKemCipherTextExchange + Send>),
+}
 
 #[cfg(test)]
 mod crypto_tests;

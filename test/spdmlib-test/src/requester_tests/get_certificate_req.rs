@@ -2,19 +2,23 @@
 //
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
-use crate::common::device_io::{FakeSpdmDeviceIo, FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::*;
-use crate::common::transport::PciDoeTransportEncap;
-use crate::common::util::{create_info, get_rsp_cert_chain_buff};
-use spdmlib::common::SpdmConnectionState;
-use spdmlib::config::{MAX_SPDM_CERT_CHAIN_DATA_SIZE, MAX_SPDM_MSG_SIZE, SPDM_DATA_TRANSFER_SIZE};
-use spdmlib::error::{SpdmResult, SPDM_STATUS_ERROR_PEER, SPDM_STATUS_INVALID_MSG_FIELD};
-use spdmlib::protocol::*;
-use spdmlib::requester::RequesterContext;
-use spdmlib::{responder, secret};
-use spin::Mutex;
+#[cfg(feature = "hashed-transcript-data")]
 extern crate alloc;
-use alloc::sync::Arc;
+#[cfg(feature = "hashed-transcript-data")]
+use {
+    crate::common::device_io::{FakeSpdmDeviceIo, FakeSpdmDeviceIoReceve, SharedBuffer},
+    crate::common::secret_callback::*,
+    crate::common::transport::PciDoeTransportEncap,
+    crate::common::util::{create_info, get_rsp_cert_chain_buff},
+    alloc::sync::Arc,
+    spdmlib::common::SpdmConnectionState,
+    spdmlib::config::{MAX_SPDM_CERT_CHAIN_DATA_SIZE, MAX_SPDM_MSG_SIZE, SPDM_DATA_TRANSFER_SIZE},
+    spdmlib::error::{SpdmResult, SPDM_STATUS_ERROR_PEER, SPDM_STATUS_INVALID_MSG_FIELD},
+    spdmlib::protocol::*,
+    spdmlib::requester::RequesterContext,
+    spdmlib::{responder, secret},
+    spin::Mutex,
+};
 
 #[test]
 #[cfg(feature = "hashed-transcript-data")]
@@ -31,6 +35,7 @@ fn test_case0_send_receive_spdm_certificate() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
         let mut responder = responder::ResponderContext::new(
             device_io_responder,
@@ -117,28 +122,28 @@ fn test_handle_spdm_certificate_partial_response() {
     struct Tc<'a> {
         name: &'a str,
         slot_id: u8,
-        total_size: u16,
-        offset: u16,
-        length: u16,
+        total_size: u32,
+        offset: u32,
+        length: u32,
         receive_buffer: &'a [u8],
-        expected_result: SpdmResult<(u16, u16)>,
+        expected_result: SpdmResult<(u32, u32)>,
     }
     let tt: [Tc; 8] = [
         Tc {
             name: "invalid certificate partial resp",
             slot_id: 0u8,
-            total_size: 0u16,
-            offset: 0u16,
-            length: 0u16,
+            total_size: 0u32,
+            offset: 0u32,
+            length: 0u32,
             receive_buffer: &[0x12, 0x82, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
             expected_result: Err(SPDM_STATUS_ERROR_PEER),
         },
         Tc {
             name: "zero length portion",
             slot_id: 0u8,
-            total_size: 2048u16,
-            offset: 0u16,
-            length: 2048u16,
+            total_size: 2048u32,
+            offset: 0u32,
+            length: 2048u32,
             receive_buffer: &[
                 0x12, 0x02, 0x00, 0x00, //
                 0x00, 0x00, // portion
@@ -149,9 +154,9 @@ fn test_handle_spdm_certificate_partial_response() {
         Tc {
             name: "portion larger than remainder",
             slot_id: 0u8,
-            total_size: 10u16,
-            offset: 7u16,
-            length: 3u16,
+            total_size: 10u32,
+            offset: 7u32,
+            length: 3u32,
             receive_buffer: &[
                 0x12, 0x02, 0x00, 0x00, //
                 0x05, 0x00, // portion
@@ -163,9 +168,9 @@ fn test_handle_spdm_certificate_partial_response() {
         Tc {
             name: "portion larger than max cert chain size",
             slot_id: 0u8,
-            total_size: MAX_SPDM_CERT_CHAIN_DATA_SIZE as u16,
-            offset: (MAX_SPDM_CERT_CHAIN_DATA_SIZE - 3) as u16,
-            length: 3u16,
+            total_size: MAX_SPDM_CERT_CHAIN_DATA_SIZE as u32,
+            offset: (MAX_SPDM_CERT_CHAIN_DATA_SIZE - 3) as u32,
+            length: 3u32,
             receive_buffer: &[
                 0x12, 0x02, 0x00, 0x00, //
                 0x05, 0x00, // portion
@@ -177,9 +182,9 @@ fn test_handle_spdm_certificate_partial_response() {
         Tc {
             name: "zero remainder but certificate is incomplete",
             slot_id: 0u8,
-            total_size: 100u16,
-            offset: 90u16,
-            length: 10u16,
+            total_size: 100u32,
+            offset: 90u32,
+            length: 10u32,
             receive_buffer: &[
                 0x12, 0x02, 0x00, 0x00, //
                 0x05, 0x00, // portion
@@ -191,9 +196,9 @@ fn test_handle_spdm_certificate_partial_response() {
         Tc {
             name: "remainder larger than max cert chain size",
             slot_id: 0u8,
-            total_size: MAX_SPDM_CERT_CHAIN_DATA_SIZE as u16,
-            offset: (MAX_SPDM_CERT_CHAIN_DATA_SIZE - 10) as u16,
-            length: 10u16,
+            total_size: MAX_SPDM_CERT_CHAIN_DATA_SIZE as u32,
+            offset: (MAX_SPDM_CERT_CHAIN_DATA_SIZE - 10) as u32,
+            length: 10u32,
             receive_buffer: &[
                 0x12, 0x02, 0x00, 0x00, //
                 0x05, 0x00, // portion
@@ -205,9 +210,9 @@ fn test_handle_spdm_certificate_partial_response() {
         Tc {
             name: "wrong certificate slot id",
             slot_id: 7u8,
-            total_size: 100u16,
-            offset: 90u16,
-            length: 10u16,
+            total_size: 100u32,
+            offset: 90u32,
+            length: 10u32,
             receive_buffer: &[
                 0x12, 0x02, 0x00, 0x00, //
                 0x05, 0x00, // portion
@@ -219,9 +224,9 @@ fn test_handle_spdm_certificate_partial_response() {
         Tc {
             name: "positive",
             slot_id: 0u8,
-            total_size: 100u16,
-            offset: 90u16,
-            length: 10u16,
+            total_size: 100u32,
+            offset: 90u32,
+            length: 10u32,
             receive_buffer: &[
                 0x12, 0x02, 0x00, 0x00, //
                 0x05, 0x00, // portion

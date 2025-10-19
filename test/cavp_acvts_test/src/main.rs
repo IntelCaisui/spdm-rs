@@ -362,6 +362,7 @@ fn ecdsa_verify(
     let ret = asym_verify::verify(
         hash_algo,
         asym_algo,
+        false,
         certificate.as_slice(),
         data.as_slice(),
         &signature,

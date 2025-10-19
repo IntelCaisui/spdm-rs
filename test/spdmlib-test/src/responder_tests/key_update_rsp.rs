@@ -34,6 +34,7 @@ fn test_case0_handle_spdm_key_update() {
         );
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
         let rsp_session_id = 0xFFFEu16;
         let session_id = (0xffu32 << 16) + rsp_session_id as u32;
@@ -43,15 +44,17 @@ fn test_case0_handle_spdm_key_update() {
         context.common.session[0].set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
         context.common.session[0].set_session_state(SpdmSessionState::SpdmSessionHandshaking);
-        let dhe_secret = SpdmDheFinalKeyStruct {
+        let shared_secret = SpdmSharedSecretFinalKeyStruct {
             data_size: 48,
-            data: Box::new([0; SPDM_MAX_DHE_KEY_SIZE]),
+            data: Box::new([0; SPDM_MAX_SHARED_SECRET_SIZE]),
         };
-        let _ = context.common.session[0].set_dhe_secret(SpdmVersion::SpdmVersion12, dhe_secret);
+        let _ =
+            context.common.session[0].set_shared_secret(SpdmVersion::SpdmVersion12, shared_secret);
         let _ = context.common.session[0].generate_handshake_secret(
             SpdmVersion::SpdmVersion12,
             &SpdmDigestStruct {
@@ -88,7 +91,8 @@ fn test_case0_handle_spdm_key_update() {
         bytes[2..].copy_from_slice(&key_exchange[0..1022]);
         let mut response_buffer = [0u8; MAX_SPDM_MSG_SIZE];
         let mut writer = Writer::init(&mut response_buffer);
-        let (status, send_buffer) = context.handle_spdm_key_update(session_id, bytes, &mut writer);
+        let (_status, _send_buffer) =
+            context.handle_spdm_key_update(session_id, bytes, &mut writer);
     };
     executor::block_on(future);
 }
@@ -99,6 +103,7 @@ fn test_case1_handle_spdm_key_update() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
         let (config_info, provision_info) = create_info();
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         let shared_buffer = SharedBuffer::new();
         let socket_io_transport = Arc::new(Mutex::new(FakeSpdmDeviceIoReceve::new(Arc::new(
             shared_buffer,
@@ -118,15 +123,17 @@ fn test_case1_handle_spdm_key_update() {
         context.common.session[0].set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
         context.common.session[0].set_session_state(SpdmSessionState::SpdmSessionHandshaking);
-        let dhe_secret = SpdmDheFinalKeyStruct {
+        let shared_secret = SpdmSharedSecretFinalKeyStruct {
             data_size: 48,
-            data: Box::new([0; SPDM_MAX_DHE_KEY_SIZE]),
+            data: Box::new([0; SPDM_MAX_SHARED_SECRET_SIZE]),
         };
-        let _ = context.common.session[0].set_dhe_secret(SpdmVersion::SpdmVersion12, dhe_secret);
+        let _ =
+            context.common.session[0].set_shared_secret(SpdmVersion::SpdmVersion12, shared_secret);
         let _ = context.common.session[0].generate_handshake_secret(
             SpdmVersion::SpdmVersion12,
             &SpdmDigestStruct {
@@ -162,7 +169,8 @@ fn test_case1_handle_spdm_key_update() {
         bytes[2..].copy_from_slice(&key_exchange[0..1022]);
         let mut response_buffer = [0u8; MAX_SPDM_MSG_SIZE];
         let mut writer = Writer::init(&mut response_buffer);
-        let (status, send_buffer) = context.handle_spdm_key_update(session_id, bytes, &mut writer);
+        let (_status, _send_buffer) =
+            context.handle_spdm_key_update(session_id, bytes, &mut writer);
     };
     executor::block_on(future);
 }

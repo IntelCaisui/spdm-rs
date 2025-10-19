@@ -52,10 +52,14 @@ impl RequesterContext {
         info!("in_clear_text {:?}\n", in_clear_text);
 
         let req_slot_id = if let Some(req_slot_id) = req_slot_id {
-            if req_slot_id >= SPDM_MAX_SLOT_NUMBER as u8 {
+            if req_slot_id != SPDM_PUB_KEY_SLOT_ID_FINISH
+                && req_slot_id >= SPDM_MAX_SLOT_NUMBER as u8
+            {
                 return Err(SPDM_STATUS_INVALID_STATE_LOCAL);
             }
-            if self.common.provision_info.my_cert_chain[req_slot_id as usize].is_none() {
+            if req_slot_id < SPDM_MAX_SLOT_NUMBER as u8
+                && self.common.provision_info.my_cert_chain[req_slot_id as usize].is_none()
+            {
                 return Err(SPDM_STATUS_INVALID_STATE_LOCAL);
             }
             req_slot_id
@@ -141,9 +145,14 @@ impl RequesterContext {
             .ok_or(SPDM_STATUS_INVALID_STATE_LOCAL)?;
         if !session.get_mut_auth_requested().is_empty() {
             finish_request_attributes = SpdmFinishRequestAttributes::SIGNATURE_INCLUDED;
-            signature.data_size = self.common.negotiate_info.req_asym_sel.get_size();
+            signature.data_size = self.common.get_req_asym_sig_size();
             is_mut_auth = true;
         }
+
+        let opaque = SpdmOpaqueStruct {
+            data_size: 0,
+            data: [0u8; MAX_SPDM_OPAQUE_SIZE],
+        };
 
         let request = SpdmMessage {
             header: SpdmMessageHeader {
@@ -155,17 +164,25 @@ impl RequesterContext {
                 req_slot_id,
                 signature,
                 verify_data: SpdmDigestStruct {
-                    data_size: self.common.negotiate_info.base_hash_sel.get_size(),
+                    data_size: self.common.get_hash_size(),
                     data: Box::new([0xcc; SPDM_MAX_HASH_SIZE]),
                 },
+                opaque,
             }),
         };
+        let opaque_total_size =
+            if self.common.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion14 {
+                2 + opaque.data_size as usize
+            } else {
+                0usize
+            };
 
         let mut writer = Writer::init(buf);
         let send_used = request.spdm_encode(&mut self.common, &mut writer)?;
 
         // Record the header of finish request
-        self.common.append_message_f(true, session_id, &buf[..4])?;
+        self.common
+            .append_message_f(true, session_id, &buf[..4 + opaque_total_size])?;
 
         let session = self
             .common
@@ -174,14 +191,15 @@ impl RequesterContext {
         if !session.get_mut_auth_requested().is_empty() {
             signature = self.generate_finish_req_signature(session.get_slot_id(), session)?;
             // patch the signature
-            buf[4..4 + signature.data_size as usize].copy_from_slice(signature.as_ref());
+            buf[4 + opaque_total_size..4 + opaque_total_size + signature.data_size as usize]
+                .copy_from_slice(signature.as_ref());
 
             self.common
                 .append_message_f(true, session_id, signature.as_ref())?;
         }
 
         // generate HMAC with finished_key
-        let base_hash_size = self.common.negotiate_info.base_hash_sel.get_size() as usize;
+        let base_hash_size = self.common.get_hash_size() as usize;
 
         let session = self
             .common
@@ -241,8 +259,7 @@ impl RequesterContext {
                     if let Some(finish_rsp) = finish_rsp {
                         debug!("!!! finish rsp : {:02x?}\n", finish_rsp);
 
-                        let base_hash_size =
-                            self.common.negotiate_info.base_hash_sel.get_size() as usize;
+                        let base_hash_size = self.common.get_hash_size() as usize;
 
                         if in_clear_text {
                             // verify HMAC with finished_key
@@ -310,6 +327,7 @@ impl RequesterContext {
                             .common
                             .get_session_via_id(session_id)
                             .ok_or(SPDM_STATUS_INVALID_STATE_LOCAL)?;
+                        session.set_th2(th2.clone());
                         match session.generate_data_secret(spdm_version_sel, &th2) {
                             Ok(_) => {}
                             Err(e) => {
@@ -367,9 +385,10 @@ impl RequesterContext {
                 .ok_or(SPDM_STATUS_BUFFER_FULL)?;
         }
 
-        crate::secret::asym_sign::sign(
+        crate::secret::spdm_asym_sign(
             self.common.negotiate_info.base_hash_sel,
-            self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.req_asym_sel.to_base(),
+            self.common.negotiate_info.pqc_req_asym_sel.to_base(),
             transcript_sign.as_ref(),
         )
         .ok_or(SPDM_STATUS_CRYPTO_ERROR)
@@ -407,31 +426,12 @@ impl RequesterContext {
             return Err(SPDM_STATUS_INVALID_STATE_LOCAL);
         }
 
-        let signature = crate::secret::asym_sign::sign(
+        crate::secret::spdm_asym_sign(
             self.common.negotiate_info.base_hash_sel,
-            self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.req_asym_sel.to_base(),
+            self.common.negotiate_info.pqc_req_asym_sel.to_base(),
             transcript_sign.as_ref(),
         )
-        .ok_or(SPDM_STATUS_CRYPTO_ERROR)?;
-
-        let peer_slot_id = self.common.runtime_info.get_local_used_cert_chain_slot_id();
-        let peer_cert = &self.common.provision_info.my_cert_chain[peer_slot_id as usize]
-            .as_ref()
-            .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
-            .data[(4usize + self.common.negotiate_info.base_hash_sel.get_size() as usize)
-            ..(self.common.peer_info.peer_cert_chain[peer_slot_id as usize]
-                .as_ref()
-                .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
-                .data_size as usize)];
-
-        crate::crypto::asym_verify::verify(
-            self.common.negotiate_info.base_hash_sel,
-            self.common.negotiate_info.base_asym_sel,
-            peer_cert,
-            transcript_sign.as_ref(),
-            &signature,
-        )?;
-
-        Ok(signature)
+        .ok_or(SPDM_STATUS_CRYPTO_ERROR)
     }
 }

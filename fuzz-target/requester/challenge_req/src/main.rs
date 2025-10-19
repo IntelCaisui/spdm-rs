@@ -6,9 +6,7 @@ use fuzzlib::*;
 use spdmlib::protocol::*;
 use spin::Mutex;
 extern crate alloc;
-use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::ops::DerefMut;
 
 async fn fuzz_send_receive_spdm_challenge(fuzzdata: Arc<Vec<u8>>) {
     let (req_config_info, req_provision_info) = req_create_info();
@@ -17,6 +15,7 @@ async fn fuzz_send_receive_spdm_challenge(fuzzdata: Arc<Vec<u8>>) {
     let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
     spdmlib::secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    spdmlib::secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     spdmlib::secret::measurement::register(SECRET_MEASUREMENT_IMPL_INSTANCE.clone());
     spdmlib::crypto::rand::register(FAKE_RAND.clone());
 

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
 use crate::common::device_io::{FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::SECRET_ASYM_IMPL_INSTANCE;
+use crate::common::secret_callback::*;
 use crate::common::transport::PciDoeTransportEncap;
 use crate::common::util::create_info;
 use codec::{Codec, Reader, Writer};
@@ -28,6 +28,7 @@ fn test_encode_encap_requst_get_certificate() {
     ))));
 
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
     let mut context = ResponderContext::new(
         socket_io_transport,
@@ -56,7 +57,7 @@ fn test_encode_encap_requst_get_certificate() {
         header.request_response_code,
         SpdmRequestResponseCode::SpdmRequestGetCertificate
     );
-    assert_eq!(payload.length, CERT_PORTION_LEN as u16);
+    assert_eq!(payload.length, CERT_PORTION_LEN as u32);
     assert_eq!(payload.offset, 0);
     assert_eq!(payload.slot_id, 0);
 }
@@ -71,6 +72,7 @@ fn test_handle_encap_response_certificate() {
     ))));
 
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
     let mut context = ResponderContext::new(
         socket_io_transport,
@@ -91,7 +93,7 @@ fn test_handle_encap_response_certificate() {
         },
         payload: SpdmMessagePayload::SpdmCertificateResponse(SpdmCertificateResponsePayload {
             slot_id: 0,
-            portion_length: CERT_PORTION_LEN as u16,
+            portion_length: CERT_PORTION_LEN as u32,
             remainder_length: 0x600,
             cert_chain: [0xa; CERT_PORTION_LEN],
         }),
@@ -121,14 +123,14 @@ fn test_handle_encap_response_certificate() {
         .as_mut()
         .unwrap()
         .data_size;
-    assert_eq!(offset, CERT_PORTION_LEN as u16);
+    assert_eq!(offset, CERT_PORTION_LEN as u32);
     assert_eq!(context.common.encap_context.encap_cert_size, offset + 0x600);
 
     let mut writer = Writer::init(encap_response);
     cert_rsp.payload =
         SpdmMessagePayload::SpdmCertificateResponse(SpdmCertificateResponsePayload {
             slot_id: 0xa,
-            portion_length: CERT_PORTION_LEN as u16,
+            portion_length: CERT_PORTION_LEN as u32,
             remainder_length: 0x400,
             cert_chain: [0xa; CERT_PORTION_LEN],
         });
@@ -145,7 +147,7 @@ fn test_handle_encap_response_certificate() {
     cert_rsp.payload =
         SpdmMessagePayload::SpdmCertificateResponse(SpdmCertificateResponsePayload {
             slot_id: 0,
-            portion_length: CERT_PORTION_LEN as u16,
+            portion_length: CERT_PORTION_LEN as u32,
             remainder_length: 0x400,
             cert_chain: [0xa; CERT_PORTION_LEN],
         });
@@ -163,6 +165,6 @@ fn test_handle_encap_response_certificate() {
         .as_mut()
         .unwrap()
         .data_size;
-    assert_eq!(offset, 0x400 as u16);
+    assert_eq!(offset, 0x400 as u32);
     assert_eq!(context.common.encap_context.encap_cert_size, offset + 0x400);
 }

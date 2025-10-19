@@ -9,7 +9,7 @@ use crate::{common, error::SpdmStatus};
 
 use codec::{Codec, Reader, Writer};
 
-pub const MAX_SUPPORTED_ALG_STRUCTURE_COUNT: usize = 4;
+pub const MAX_SUPPORTED_ALG_STRUCTURE_COUNT: usize = 6;
 
 #[derive(Debug, Clone, Default)]
 pub struct SpdmNegotiateAlgorithmsRequestPayload {
@@ -17,6 +17,7 @@ pub struct SpdmNegotiateAlgorithmsRequestPayload {
     pub other_params_support: SpdmAlgoOtherParams,
     pub base_asym_algo: SpdmBaseAsymAlgo,
     pub base_hash_algo: SpdmBaseHashAlgo,
+    pub pqc_asym_algo: SpdmPqcAsymAlgo,
     pub mel_specification: SpdmMelSpecification,
     pub alg_struct_count: u8,
     pub alg_struct: [SpdmAlgStruct; MAX_SUPPORTED_ALG_STRUCTURE_COUNT],
@@ -70,7 +71,19 @@ impl SpdmCodec for SpdmNegotiateAlgorithmsRequestPayload {
             .base_hash_algo
             .encode(bytes)
             .map_err(|_| SPDM_STATUS_BUFFER_FULL)?;
-        for _i in 0..12 {
+
+        if context.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion14 {
+            cnt += self
+                .pqc_asym_algo
+                .encode(bytes)
+                .map_err(|_| SPDM_STATUS_BUFFER_FULL)?;
+        } else {
+            for _i in 0..4 {
+                cnt += 0u8.encode(bytes).map_err(|_| SPDM_STATUS_BUFFER_FULL)?; // reserved2
+            }
+        }
+
+        for _i in 0..8 {
             cnt += 0u8.encode(bytes).map_err(|_| SPDM_STATUS_BUFFER_FULL)?; // reserved2
         }
 
@@ -104,7 +117,7 @@ impl SpdmCodec for SpdmNegotiateAlgorithmsRequestPayload {
         let mut alg_struct_count = 0;
         if context.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion11 {
             alg_struct_count = u8::read(r)?; // param1
-            if alg_struct_count > 4 {
+            if alg_struct_count > MAX_SUPPORTED_ALG_STRUCTURE_COUNT as u8 {
                 return None;
             }
         } else {
@@ -126,7 +139,17 @@ impl SpdmCodec for SpdmNegotiateAlgorithmsRequestPayload {
         let base_asym_algo = SpdmBaseAsymAlgo::read(r)?;
         let base_hash_algo = SpdmBaseHashAlgo::read(r)?;
 
-        for _i in 0..12 {
+        let pqc_asym_algo = if context.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion14
+        {
+            SpdmPqcAsymAlgo::read(r)?
+        } else {
+            for _i in 0..4 {
+                u8::read(r)?; // reserved2
+            }
+            SpdmPqcAsymAlgo::default()
+        };
+
+        for _i in 0..8 {
             u8::read(r)?; // reserved2
         }
 
@@ -150,12 +173,15 @@ impl SpdmCodec for SpdmNegotiateAlgorithmsRequestPayload {
                 SpdmMelSpecification::default()
             };
 
-        let mut alg_struct = gen_array_clone(SpdmAlgStruct::default(), 4);
+        let mut alg_struct =
+            gen_array_clone(SpdmAlgStruct::default(), MAX_SUPPORTED_ALG_STRUCTURE_COUNT);
         if context.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion11 {
             let mut dhe_present = false;
             let mut aead_present = false;
             let mut req_asym_present = false;
             let mut key_schedule_present = false;
+            let mut pqc_req_asym_present = false;
+            let mut kem_present = false;
             let mut current_type = SpdmAlgType::Unknown(0);
             for algo in alg_struct.iter_mut().take(alg_struct_count as usize) {
                 let alg = SpdmAlgStruct::read(r)?;
@@ -188,6 +214,18 @@ impl SpdmCodec for SpdmNegotiateAlgorithmsRequestPayload {
                         }
                         key_schedule_present = true;
                     }
+                    SpdmAlg::SpdmAlgoPqcReqAsym(_) => {
+                        if pqc_req_asym_present {
+                            return None;
+                        }
+                        pqc_req_asym_present = true;
+                    }
+                    SpdmAlg::SpdmAlgoKem(_) => {
+                        if kem_present {
+                            return None;
+                        }
+                        kem_present = true;
+                    }
                     SpdmAlg::SpdmAlgoUnknown(_) => {
                         return None;
                     }
@@ -214,6 +252,7 @@ impl SpdmCodec for SpdmNegotiateAlgorithmsRequestPayload {
             other_params_support,
             base_asym_algo,
             base_hash_algo,
+            pqc_asym_algo,
             mel_specification,
             alg_struct_count,
             alg_struct,
@@ -228,9 +267,10 @@ pub struct SpdmAlgorithmsResponsePayload {
     pub measurement_hash_algo: SpdmMeasurementHashAlgo,
     pub base_asym_sel: SpdmBaseAsymAlgo,
     pub base_hash_sel: SpdmBaseHashAlgo,
+    pub pqc_asym_sel: SpdmPqcAsymAlgo,
     pub mel_specification_sel: SpdmMelSpecification,
     pub alg_struct_count: u8,
-    pub alg_struct: [SpdmAlgStruct; 4],
+    pub alg_struct: [SpdmAlgStruct; MAX_SUPPORTED_ALG_STRUCTURE_COUNT],
 }
 
 impl SpdmCodec for SpdmAlgorithmsResponsePayload {
@@ -285,7 +325,19 @@ impl SpdmCodec for SpdmAlgorithmsResponsePayload {
             .base_hash_sel
             .encode(bytes)
             .map_err(|_| SPDM_STATUS_BUFFER_FULL)?;
-        for _i in 0..11 {
+
+        if context.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion14 {
+            cnt += self
+                .pqc_asym_sel
+                .encode(bytes)
+                .map_err(|_| SPDM_STATUS_BUFFER_FULL)?;
+        } else {
+            for _i in 0..4 {
+                cnt += 0u8.encode(bytes).map_err(|_| SPDM_STATUS_BUFFER_FULL)?; // reserved2
+            }
+        }
+
+        for _i in 0..7 {
             cnt += 0u8.encode(bytes).map_err(|_| SPDM_STATUS_BUFFER_FULL)?; // reserved2
         }
 
@@ -319,7 +371,7 @@ impl SpdmCodec for SpdmAlgorithmsResponsePayload {
         let mut alg_struct_count = 0;
         if context.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion11 {
             alg_struct_count = u8::read(r)?; // param1
-            if alg_struct_count > 4 {
+            if alg_struct_count > MAX_SUPPORTED_ALG_STRUCTURE_COUNT as u8 {
                 return None;
             }
         } else {
@@ -392,30 +444,6 @@ impl SpdmCodec for SpdmAlgorithmsResponsePayload {
         if !base_asym_sel.is_no_more_than_one_selected() {
             return None;
         }
-        if (context
-            .negotiate_info
-            .rsp_capabilities_sel
-            .contains(SpdmResponseCapabilityFlags::CERT_CAP)
-            || context
-                .negotiate_info
-                .rsp_capabilities_sel
-                .contains(SpdmResponseCapabilityFlags::CHAL_CAP)
-            || context
-                .negotiate_info
-                .rsp_capabilities_sel
-                .contains(SpdmResponseCapabilityFlags::MEAS_CAP_SIG)
-            || (context
-                .negotiate_info
-                .rsp_capabilities_sel
-                .contains(SpdmResponseCapabilityFlags::KEY_EX_CAP)
-                && context
-                    .negotiate_info
-                    .req_capabilities_sel
-                    .contains(SpdmRequestCapabilityFlags::KEY_EX_CAP)))
-            && !base_asym_sel.is_valid_one_select()
-        {
-            return None;
-        }
 
         let base_hash_sel = SpdmBaseHashAlgo::read(r)?;
         if !base_hash_sel.is_no_more_than_one_selected() {
@@ -458,7 +486,48 @@ impl SpdmCodec for SpdmAlgorithmsResponsePayload {
             return None;
         }
 
-        for _i in 0..11 {
+        let pqc_asym_sel = if context.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion12
+        {
+            SpdmPqcAsymAlgo::read(r)?
+        } else {
+            for _i in 0..4 {
+                u8::read(r)?; // reserved2
+            }
+            SpdmPqcAsymAlgo::default()
+        };
+        if !pqc_asym_sel.is_no_more_than_one_selected() {
+            return None;
+        }
+        if base_asym_sel.is_valid_one_select() && pqc_asym_sel.is_valid_one_select() {
+            return None;
+        }
+        if (context
+            .negotiate_info
+            .rsp_capabilities_sel
+            .contains(SpdmResponseCapabilityFlags::CERT_CAP)
+            || context
+                .negotiate_info
+                .rsp_capabilities_sel
+                .contains(SpdmResponseCapabilityFlags::CHAL_CAP)
+            || context
+                .negotiate_info
+                .rsp_capabilities_sel
+                .contains(SpdmResponseCapabilityFlags::MEAS_CAP_SIG)
+            || (context
+                .negotiate_info
+                .rsp_capabilities_sel
+                .contains(SpdmResponseCapabilityFlags::KEY_EX_CAP)
+                && context
+                    .negotiate_info
+                    .req_capabilities_sel
+                    .contains(SpdmRequestCapabilityFlags::KEY_EX_CAP)))
+            && !base_asym_sel.is_valid_one_select()
+            && !pqc_asym_sel.is_valid_one_select()
+        {
+            return None;
+        }
+
+        for _i in 0..7 {
             u8::read(r)?; // reserved2
         }
 
@@ -482,13 +551,20 @@ impl SpdmCodec for SpdmAlgorithmsResponsePayload {
 
         u16::read(r)?; // reserved3
 
-        let mut alg_struct = gen_array_clone(SpdmAlgStruct::default(), 4);
+        let mut alg_struct =
+            gen_array_clone(SpdmAlgStruct::default(), MAX_SUPPORTED_ALG_STRUCTURE_COUNT);
         if context.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion11 {
             let mut dhe_present = false;
             let mut aead_present = false;
             let mut req_asym_present = false;
             let mut key_schedule_present = false;
+            let mut pqc_req_asym_present = false;
+            let mut kem_present = false;
             let mut current_type = SpdmAlgType::Unknown(0);
+            let mut dhe_sel = SpdmDheAlgo::default();
+            let mut req_asym_sel = SpdmReqAsymAlgo::default();
+            let mut pqc_req_asym_sel = SpdmPqcReqAsymAlgo::default();
+            let mut kem_sel = SpdmKemAlgo::default();
             for algo in alg_struct.iter_mut().take(alg_struct_count as usize) {
                 let alg = SpdmAlgStruct::read(r)?;
                 if current_type.get_u8() >= alg.alg_type.get_u8() {
@@ -501,20 +577,8 @@ impl SpdmCodec for SpdmAlgorithmsResponsePayload {
                             return None;
                         }
                         dhe_present = true;
-                        let dhe_sel = v;
+                        dhe_sel = v;
                         if !dhe_sel.is_no_more_than_one_selected() {
-                            return None;
-                        }
-                        if (context
-                            .negotiate_info
-                            .rsp_capabilities_sel
-                            .contains(SpdmResponseCapabilityFlags::KEY_EX_CAP)
-                            && context
-                                .negotiate_info
-                                .req_capabilities_sel
-                                .contains(SpdmRequestCapabilityFlags::KEY_EX_CAP))
-                            && !dhe_sel.is_valid_one_select()
-                        {
                             return None;
                         }
                     }
@@ -553,20 +617,8 @@ impl SpdmCodec for SpdmAlgorithmsResponsePayload {
                             return None;
                         }
                         req_asym_present = true;
-                        let req_asym_sel = v;
+                        req_asym_sel = v;
                         if !req_asym_sel.is_no_more_than_one_selected() {
-                            return None;
-                        }
-                        if (context
-                            .negotiate_info
-                            .rsp_capabilities_sel
-                            .contains(SpdmResponseCapabilityFlags::MUT_AUTH_CAP)
-                            && context
-                                .negotiate_info
-                                .req_capabilities_sel
-                                .contains(SpdmRequestCapabilityFlags::MUT_AUTH_CAP))
-                            && !req_asym_sel.is_valid_one_select()
-                        {
                             return None;
                         }
                     }
@@ -604,11 +656,63 @@ impl SpdmCodec for SpdmAlgorithmsResponsePayload {
                             return None;
                         }
                     }
+                    SpdmAlg::SpdmAlgoPqcReqAsym(v) => {
+                        if pqc_req_asym_present {
+                            return None;
+                        }
+                        pqc_req_asym_present = true;
+                        pqc_req_asym_sel = v;
+                        if !pqc_req_asym_sel.is_no_more_than_one_selected() {
+                            return None;
+                        }
+                    }
+                    SpdmAlg::SpdmAlgoKem(v) => {
+                        if kem_present {
+                            return None;
+                        }
+                        kem_present = true;
+                        kem_sel = v;
+                        if !kem_sel.is_no_more_than_one_selected() {
+                            return None;
+                        }
+                    }
                     SpdmAlg::SpdmAlgoUnknown(_v) => {
                         return None;
                     }
                 }
                 *algo = alg;
+            }
+            if dhe_sel.is_valid_one_select() && kem_sel.is_valid_one_select() {
+                return None;
+            }
+            if (context
+                .negotiate_info
+                .rsp_capabilities_sel
+                .contains(SpdmResponseCapabilityFlags::KEY_EX_CAP)
+                && context
+                    .negotiate_info
+                    .req_capabilities_sel
+                    .contains(SpdmRequestCapabilityFlags::KEY_EX_CAP))
+                && !dhe_sel.is_valid_one_select()
+                && !kem_sel.is_valid_one_select()
+            {
+                return None;
+            }
+            if req_asym_sel.is_valid_one_select() && pqc_req_asym_sel.is_valid_one_select() {
+                return None;
+            }
+            if (context
+                .negotiate_info
+                .rsp_capabilities_sel
+                .contains(SpdmResponseCapabilityFlags::MUT_AUTH_CAP)
+                && context
+                    .negotiate_info
+                    .req_capabilities_sel
+                    .contains(SpdmRequestCapabilityFlags::MUT_AUTH_CAP))
+                && !req_asym_sel.is_valid_one_select()
+                && !pqc_req_asym_sel.is_valid_one_select()
+            {
+                return None;
             }
         }
 
@@ -628,6 +732,7 @@ impl SpdmCodec for SpdmAlgorithmsResponsePayload {
             measurement_hash_algo,
             base_asym_sel,
             base_hash_sel,
+            pqc_asym_sel,
             mel_specification_sel,
             alg_struct_count,
             alg_struct,
@@ -648,7 +753,7 @@ mod tests {
 
     #[test]
     fn test_case0_spdm_negotiate_algorithms_request_payload() {
-        let u8_slice = &mut [0u8; 48];
+        let u8_slice = &mut [0u8; 56];
         let mut writer = Writer::init(u8_slice);
         let value = SpdmNegotiateAlgorithmsRequestPayload {
             measurement_specification: SpdmMeasurementSpecification::DMTF,
@@ -656,8 +761,9 @@ mod tests {
                 | SpdmAlgoOtherParams::MULTI_KEY_CONN,
             base_asym_algo: SpdmBaseAsymAlgo::TPM_ALG_RSASSA_2048,
             base_hash_algo: SpdmBaseHashAlgo::TPM_ALG_SHA_256,
+            pqc_asym_algo: SpdmPqcAsymAlgo::ALG_MLDSA_87,
             mel_specification: SpdmMelSpecification::DMTF_MEL_SPEC,
-            alg_struct_count: 4,
+            alg_struct_count: MAX_SUPPORTED_ALG_STRUCTURE_COUNT as u8,
             alg_struct: [
                 SpdmAlgStruct {
                     alg_type: SpdmAlgType::SpdmAlgTypeDHE,
@@ -679,6 +785,14 @@ mod tests {
                         SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
                     ),
                 },
+                SpdmAlgStruct {
+                    alg_type: SpdmAlgType::SpdmAlgTypePqcReqAsym,
+                    alg_supported: SpdmAlg::SpdmAlgoPqcReqAsym(SpdmPqcReqAsymAlgo::ALG_MLDSA_87),
+                },
+                SpdmAlgStruct {
+                    alg_type: SpdmAlgType::SpdmAlgTypeKEM,
+                    alg_supported: SpdmAlg::SpdmAlgoKem(SpdmKemAlgo::ALG_MLKEM_1024),
+                },
             ],
         };
         create_spdm_context!(context);
@@ -686,7 +800,7 @@ mod tests {
 
         assert!(value.spdm_encode(&mut context, &mut writer).is_ok());
         let mut reader = Reader::init(u8_slice);
-        assert_eq!(48, reader.left());
+        assert_eq!(56, reader.left());
         let spdm_sturct_data =
             SpdmNegotiateAlgorithmsRequestPayload::spdm_read(&mut context, &mut reader).unwrap();
         assert_eq!(
@@ -709,7 +823,10 @@ mod tests {
             spdm_sturct_data.mel_specification,
             SpdmMelSpecification::DMTF_MEL_SPEC
         );
-        assert_eq!(spdm_sturct_data.alg_struct_count, 4);
+        assert_eq!(
+            spdm_sturct_data.alg_struct_count,
+            MAX_SUPPORTED_ALG_STRUCTURE_COUNT as u8
+        );
         assert_eq!(
             spdm_sturct_data.alg_struct[0].alg_type,
             SpdmAlgType::SpdmAlgTypeDHE
@@ -754,9 +871,13 @@ mod tests {
             other_params_support: SpdmAlgoOtherParams::empty(),
             base_asym_algo: SpdmBaseAsymAlgo::empty(),
             base_hash_algo: SpdmBaseHashAlgo::empty(),
+            pqc_asym_algo: SpdmPqcAsymAlgo::empty(),
             mel_specification: SpdmMelSpecification::empty(),
             alg_struct_count: 0,
-            alg_struct: gen_array_clone(SpdmAlgStruct::default(), 4),
+            alg_struct: gen_array_clone(
+                SpdmAlgStruct::default(),
+                MAX_SUPPORTED_ALG_STRUCTURE_COUNT,
+            ),
         };
 
         create_spdm_context!(context);
@@ -789,9 +910,13 @@ mod tests {
             other_params_support: SpdmAlgoOtherParams::empty(),
             base_asym_algo: SpdmBaseAsymAlgo::TPM_ALG_RSASSA_2048,
             base_hash_algo: SpdmBaseHashAlgo::TPM_ALG_SHA_256,
+            pqc_asym_algo: SpdmPqcAsymAlgo::ALG_MLDSA_87,
             mel_specification: SpdmMelSpecification::empty(),
             alg_struct_count: 0,
-            alg_struct: gen_array_clone(SpdmAlgStruct::default(), 4),
+            alg_struct: gen_array_clone(
+                SpdmAlgStruct::default(),
+                MAX_SUPPORTED_ALG_STRUCTURE_COUNT,
+            ),
         };
 
         create_spdm_context!(context);
@@ -808,7 +933,7 @@ mod tests {
     }
     #[test]
     fn test_case0_spdm_algorithms_response_payload() {
-        let u8_slice = &mut [0u8; 50];
+        let u8_slice = &mut [0u8; 58];
         let mut writer = Writer::init(u8_slice);
         let value = SpdmAlgorithmsResponsePayload {
             measurement_specification_sel: SpdmMeasurementSpecification::DMTF,
@@ -817,8 +942,9 @@ mod tests {
             measurement_hash_algo: SpdmMeasurementHashAlgo::RAW_BIT_STREAM,
             base_asym_sel: SpdmBaseAsymAlgo::TPM_ALG_RSASSA_2048,
             base_hash_sel: SpdmBaseHashAlgo::TPM_ALG_SHA_256,
+            pqc_asym_sel: SpdmPqcAsymAlgo::empty(),
             mel_specification_sel: SpdmMelSpecification::DMTF_MEL_SPEC,
-            alg_struct_count: 4,
+            alg_struct_count: MAX_SUPPORTED_ALG_STRUCTURE_COUNT as u8,
             alg_struct: [
                 SpdmAlgStruct {
                     alg_type: SpdmAlgType::SpdmAlgTypeDHE,
@@ -840,6 +966,14 @@ mod tests {
                         SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
                     ),
                 },
+                SpdmAlgStruct {
+                    alg_type: SpdmAlgType::SpdmAlgTypePqcReqAsym,
+                    alg_supported: SpdmAlg::SpdmAlgoPqcReqAsym(SpdmPqcReqAsymAlgo::empty()),
+                },
+                SpdmAlgStruct {
+                    alg_type: SpdmAlgType::SpdmAlgTypeKEM,
+                    alg_supported: SpdmAlg::SpdmAlgoKem(SpdmKemAlgo::empty()),
+                },
             ],
         };
 
@@ -853,7 +987,7 @@ mod tests {
 
         assert!(value.spdm_encode(&mut context, &mut writer).is_ok());
         let mut reader = Reader::init(u8_slice);
-        assert_eq!(50, reader.left());
+        assert_eq!(58, reader.left());
         let spdm_sturct_data =
             SpdmAlgorithmsResponsePayload::spdm_read(&mut context, &mut reader).unwrap();
         assert_eq!(
@@ -880,7 +1014,10 @@ mod tests {
             spdm_sturct_data.mel_specification_sel,
             SpdmMelSpecification::DMTF_MEL_SPEC
         );
-        assert_eq!(spdm_sturct_data.alg_struct_count, 4);
+        assert_eq!(
+            spdm_sturct_data.alg_struct_count,
+            MAX_SUPPORTED_ALG_STRUCTURE_COUNT as u8
+        );
         assert_eq!(
             spdm_sturct_data.alg_struct[0].alg_type,
             SpdmAlgType::SpdmAlgTypeDHE
@@ -926,9 +1063,13 @@ mod tests {
             measurement_hash_algo: SpdmMeasurementHashAlgo::RAW_BIT_STREAM,
             base_asym_sel: SpdmBaseAsymAlgo::TPM_ALG_RSASSA_2048,
             base_hash_sel: SpdmBaseHashAlgo::TPM_ALG_SHA_256,
+            pqc_asym_sel: SpdmPqcAsymAlgo::ALG_MLDSA_87,
             mel_specification_sel: SpdmMelSpecification::DMTF_MEL_SPEC,
             alg_struct_count: 0,
-            alg_struct: gen_array_clone(SpdmAlgStruct::default(), 4),
+            alg_struct: gen_array_clone(
+                SpdmAlgStruct::default(),
+                MAX_SUPPORTED_ALG_STRUCTURE_COUNT,
+            ),
         };
 
         create_spdm_context!(context);
@@ -977,9 +1118,13 @@ mod tests {
             measurement_hash_algo: SpdmMeasurementHashAlgo::empty(),
             base_asym_sel: SpdmBaseAsymAlgo::empty(),
             base_hash_sel: SpdmBaseHashAlgo::empty(),
+            pqc_asym_sel: SpdmPqcAsymAlgo::empty(),
             mel_specification_sel: SpdmMelSpecification::empty(),
             alg_struct_count: 0,
-            alg_struct: gen_array_clone(SpdmAlgStruct::default(), 4),
+            alg_struct: gen_array_clone(
+                SpdmAlgStruct::default(),
+                MAX_SUPPORTED_ALG_STRUCTURE_COUNT,
+            ),
         };
 
         create_spdm_context!(context);

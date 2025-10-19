@@ -691,6 +691,7 @@ mod tests {
                         | SpdmRequestCapabilityFlags::CHAL_CAP,
                     data_transfer_size: 0,
                     max_spdm_msg_size: 0,
+                    ex_flags: SpdmRequestCapabilityExFlags::default(),
                 },
             ),
         };
@@ -723,6 +724,7 @@ mod tests {
                     flags: SpdmResponseCapabilityFlags::CACHE_CAP,
                     data_transfer_size: 0,
                     max_spdm_msg_size: 0,
+                    ex_flags: SpdmResponseCapabilityExFlags::default(),
                 },
             ),
         };
@@ -752,8 +754,9 @@ mod tests {
                     other_params_support: SpdmAlgoOtherParams::empty(),
                     base_asym_algo: SpdmBaseAsymAlgo::TPM_ALG_RSASSA_2048,
                     base_hash_algo: SpdmBaseHashAlgo::TPM_ALG_SHA_256,
+                    pqc_asym_algo: SpdmPqcAsymAlgo::ALG_MLDSA_87,
                     mel_specification: SpdmMelSpecification::empty(),
-                    alg_struct_count: 4,
+                    alg_struct_count: MAX_SUPPORTED_ALG_STRUCTURE_COUNT as u8,
                     alg_struct: [
                         SpdmAlgStruct {
                             alg_type: SpdmAlgType::SpdmAlgTypeDHE,
@@ -774,6 +777,16 @@ mod tests {
                             alg_supported: SpdmAlg::SpdmAlgoKeySchedule(
                                 SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
                             ),
+                        },
+                        SpdmAlgStruct {
+                            alg_type: SpdmAlgType::SpdmAlgTypePqcReqAsym,
+                            alg_supported: SpdmAlg::SpdmAlgoPqcReqAsym(
+                                SpdmPqcReqAsymAlgo::ALG_MLDSA_87,
+                            ),
+                        },
+                        SpdmAlgStruct {
+                            alg_type: SpdmAlgType::SpdmAlgTypeKEM,
+                            alg_supported: SpdmAlg::SpdmAlgoKem(SpdmKemAlgo::ALG_MLKEM_1024),
                         },
                     ],
                 },
@@ -797,7 +810,10 @@ mod tests {
                 SpdmBaseAsymAlgo::TPM_ALG_RSASSA_2048
             );
             assert_eq!(payload.base_hash_algo, SpdmBaseHashAlgo::TPM_ALG_SHA_256);
-            assert_eq!(payload.alg_struct_count, 4);
+            assert_eq!(
+                payload.alg_struct_count,
+                MAX_SUPPORTED_ALG_STRUCTURE_COUNT as u8
+            );
             assert_eq!(payload.alg_struct[0].alg_type, SpdmAlgType::SpdmAlgTypeDHE);
             assert_eq!(
                 payload.alg_struct[0].alg_supported,
@@ -839,8 +855,9 @@ mod tests {
                 measurement_hash_algo: SpdmMeasurementHashAlgo::RAW_BIT_STREAM,
                 base_asym_sel: SpdmBaseAsymAlgo::TPM_ALG_RSASSA_2048,
                 base_hash_sel: SpdmBaseHashAlgo::TPM_ALG_SHA_256,
+                pqc_asym_sel: SpdmPqcAsymAlgo::empty(),
                 mel_specification_sel: SpdmMelSpecification::empty(),
-                alg_struct_count: 4,
+                alg_struct_count: MAX_SUPPORTED_ALG_STRUCTURE_COUNT as u8,
                 alg_struct: [
                     SpdmAlgStruct {
                         alg_type: SpdmAlgType::SpdmAlgTypeDHE,
@@ -861,6 +878,14 @@ mod tests {
                         alg_supported: SpdmAlg::SpdmAlgoKeySchedule(
                             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
                         ),
+                    },
+                    SpdmAlgStruct {
+                        alg_type: SpdmAlgType::SpdmAlgTypePqcReqAsym,
+                        alg_supported: SpdmAlg::SpdmAlgoPqcReqAsym(SpdmPqcReqAsymAlgo::empty()),
+                    },
+                    SpdmAlgStruct {
+                        alg_type: SpdmAlgType::SpdmAlgTypeKEM,
+                        alg_supported: SpdmAlg::SpdmAlgoKem(SpdmKemAlgo::empty()),
                     },
                 ],
             }),
@@ -889,7 +914,10 @@ mod tests {
             );
             assert_eq!(payload.base_asym_sel, SpdmBaseAsymAlgo::TPM_ALG_RSASSA_2048);
             assert_eq!(payload.base_hash_sel, SpdmBaseHashAlgo::TPM_ALG_SHA_256);
-            assert_eq!(payload.alg_struct_count, 4);
+            assert_eq!(
+                payload.alg_struct_count,
+                MAX_SUPPORTED_ALG_STRUCTURE_COUNT as u8
+            );
             assert_eq!(payload.alg_struct[0].alg_type, SpdmAlgType::SpdmAlgTypeDHE);
             assert_eq!(
                 payload.alg_struct[0].alg_supported,
@@ -926,8 +954,8 @@ mod tests {
                 request_response_code: SpdmRequestResponseCode::SpdmResponseCertificate,
             },
             payload: SpdmMessagePayload::SpdmCertificateResponse(SpdmCertificateResponsePayload {
-                slot_id: 100,
-                portion_length: MAX_SPDM_CERT_PORTION_LEN as u16,
+                slot_id: 4,
+                portion_length: MAX_SPDM_CERT_PORTION_LEN as u32,
                 remainder_length: 100,
                 cert_chain: [100u8; MAX_SPDM_CERT_PORTION_LEN],
             }),
@@ -940,8 +968,8 @@ mod tests {
             SpdmRequestResponseCode::SpdmResponseCertificate
         );
         if let SpdmMessagePayload::SpdmCertificateResponse(payload) = &spdm_message.payload {
-            assert_eq!(payload.slot_id, 100);
-            assert_eq!(payload.portion_length, MAX_SPDM_CERT_PORTION_LEN as u16);
+            assert_eq!(payload.slot_id, 4);
+            assert_eq!(payload.portion_length, MAX_SPDM_CERT_PORTION_LEN as u32);
             assert_eq!(payload.remainder_length, 100);
             for i in 0..MAX_SPDM_CERT_PORTION_LEN {
                 assert_eq!(payload.cert_chain[i], 100u8);
@@ -956,7 +984,7 @@ mod tests {
                 request_response_code: SpdmRequestResponseCode::SpdmRequestChallenge,
             },
             payload: SpdmMessagePayload::SpdmChallengeRequest(SpdmChallengeRequestPayload {
-                slot_id: 100,
+                slot_id: 4,
                 measurement_summary_hash_type:
                     SpdmMeasurementSummaryHashType::SpdmMeasurementSummaryHashTypeNone,
                 nonce: SpdmNonceStruct {
@@ -977,7 +1005,7 @@ mod tests {
             SpdmRequestResponseCode::SpdmRequestChallenge
         );
         if let SpdmMessagePayload::SpdmChallengeRequest(payload) = &spdm_message.payload {
-            assert_eq!(payload.slot_id, 100);
+            assert_eq!(payload.slot_id, 4);
             assert_eq!(
                 payload.measurement_summary_hash_type,
                 SpdmMeasurementSummaryHashType::SpdmMeasurementSummaryHashTypeNone
@@ -1003,14 +1031,14 @@ mod tests {
                     slot_mask: 100,
                     challenge_auth_attribute: SpdmChallengeAuthAttribute::BASIC_MUT_AUTH_REQ,
                     cert_chain_hash: SpdmDigestStruct {
-                        data_size: SPDM_MAX_HASH_SIZE as u16,
+                        data_size: SHA512_DIGEST_SIZE as u16,
                         data: Box::new([0xAAu8; SPDM_MAX_HASH_SIZE]),
                     },
                     nonce: SpdmNonceStruct {
                         data: [100u8; SPDM_NONCE_SIZE],
                     },
                     measurement_summary_hash: SpdmDigestStruct {
-                        data_size: SPDM_MAX_HASH_SIZE as u16,
+                        data_size: SHA512_DIGEST_SIZE as u16,
                         data: Box::new([0x55u8; SPDM_MAX_HASH_SIZE]),
                     },
                     opaque: SpdmOpaqueStruct {
@@ -1021,8 +1049,8 @@ mod tests {
                         data: [100u8; SPDM_CHALLENGE_CONTEXT_SIZE],
                     },
                     signature: SpdmSignatureStruct {
-                        data_size: SPDM_MAX_ASYM_KEY_SIZE as u16,
-                        data: [0x55u8; SPDM_MAX_ASYM_KEY_SIZE],
+                        data_size: RSASSA_4096_SIG_SIZE as u16,
+                        data: [0x55u8; SPDM_MAX_ASYM_SIG_SIZE],
                     },
                 },
             ),
@@ -1051,7 +1079,7 @@ mod tests {
                 SHA512_DIGEST_SIZE as u16
             );
             assert_eq!(payload.opaque.data_size, MAX_SPDM_OPAQUE_SIZE as u16);
-            assert_eq!(payload.signature.data_size, RSASSA_4096_KEY_SIZE as u16);
+            assert_eq!(payload.signature.data_size, RSASSA_4096_SIG_SIZE as u16);
 
             for i in 0..SHA512_DIGEST_SIZE {
                 assert_eq!(payload.cert_chain_hash.data[i], 0xAAu8);
@@ -1068,7 +1096,7 @@ mod tests {
             for i in 0..SPDM_CHALLENGE_CONTEXT_SIZE {
                 assert_eq!(payload.requester_context.data[i], 100u8);
             }
-            for i in 0..RSASSA_4096_KEY_SIZE {
+            for i in 0..RSASSA_4096_SIG_SIZE {
                 assert_eq!(payload.signature.data[i], 0x55u8);
             }
         }
@@ -1168,8 +1196,8 @@ mod tests {
                         data: [100u8; SPDM_MEASUREMENTS_CONTEXT_SIZE],
                     },
                     signature: SpdmSignatureStruct {
-                        data_size: SPDM_MAX_ASYM_KEY_SIZE as u16,
-                        data: [100u8; SPDM_MAX_ASYM_KEY_SIZE],
+                        data_size: RSASSA_4096_SIG_SIZE as u16,
+                        data: [100u8; SPDM_MAX_ASYM_SIG_SIZE],
                     },
                     measurement_operation:
                         SpdmMeasurementOperation::SpdmMeasurementQueryTotalNumber,
@@ -1207,8 +1235,8 @@ mod tests {
             for i in 0..SPDM_MEASUREMENTS_CONTEXT_SIZE {
                 assert_eq!(payload.requester_context.data[i], 100);
             }
-            assert_eq!(payload.signature.data_size, RSASSA_4096_KEY_SIZE as u16);
-            for i in 0..RSASSA_4096_KEY_SIZE {
+            assert_eq!(payload.signature.data_size, RSASSA_4096_SIG_SIZE as u16);
+            for i in 0..RSASSA_4096_SIG_SIZE {
                 assert_eq!(payload.signature.data[i], 100);
             }
         }
@@ -1223,15 +1251,15 @@ mod tests {
             payload: SpdmMessagePayload::SpdmKeyExchangeRequest(SpdmKeyExchangeRequestPayload {
                 measurement_summary_hash_type:
                     SpdmMeasurementSummaryHashType::SpdmMeasurementSummaryHashTypeNone,
-                slot_id: 100u8,
+                slot_id: 4,
                 req_session_id: 100u16,
                 session_policy: 1,
                 random: SpdmRandomStruct {
                     data: [100u8; SPDM_RANDOM_SIZE],
                 },
-                exchange: SpdmDheExchangeStruct {
-                    data_size: SPDM_MAX_DHE_KEY_SIZE as u16,
-                    data: [100u8; SPDM_MAX_DHE_KEY_SIZE],
+                exchange: SpdmReqExchangeStruct {
+                    data_size: SECP_384_R1_KEY_SIZE as u16,
+                    data: [100u8; SPDM_MAX_REQ_KEY_EXCHANGE_SIZE],
                 },
                 opaque: SpdmOpaqueStruct {
                     data_size: MAX_SPDM_OPAQUE_SIZE as u16,
@@ -1252,15 +1280,12 @@ mod tests {
                 payload.measurement_summary_hash_type,
                 SpdmMeasurementSummaryHashType::SpdmMeasurementSummaryHashTypeNone
             );
-            assert_eq!(payload.slot_id, 100);
+            assert_eq!(payload.slot_id, 4);
             for i in 0..SPDM_RANDOM_SIZE {
                 assert_eq!(payload.random.data[i], 100);
             }
-            assert_eq!(
-                payload.exchange.data_size,
-                ECDSA_ECC_NIST_P384_KEY_SIZE as u16
-            );
-            for i in 0..ECDSA_ECC_NIST_P384_KEY_SIZE {
+            assert_eq!(payload.exchange.data_size, SECP_384_R1_KEY_SIZE as u16);
+            for i in 0..SECP_384_R1_KEY_SIZE {
                 assert_eq!(payload.exchange.data[i], 100);
             }
             assert_eq!(payload.opaque.data_size, MAX_SPDM_OPAQUE_SIZE as u16);
@@ -1278,14 +1303,18 @@ mod tests {
             },
             payload: SpdmMessagePayload::SpdmFinishRequest(SpdmFinishRequestPayload {
                 finish_request_attributes: SpdmFinishRequestAttributes::SIGNATURE_INCLUDED,
-                req_slot_id: 100,
+                req_slot_id: 4,
                 signature: SpdmSignatureStruct {
-                    data_size: SPDM_MAX_ASYM_KEY_SIZE as u16,
-                    data: [0xa5u8; SPDM_MAX_ASYM_KEY_SIZE],
+                    data_size: RSASSA_4096_SIG_SIZE as u16,
+                    data: [0xa5u8; SPDM_MAX_ASYM_SIG_SIZE],
                 },
                 verify_data: SpdmDigestStruct {
-                    data_size: SPDM_MAX_HASH_SIZE as u16,
+                    data_size: SHA512_DIGEST_SIZE as u16,
                     data: Box::new([0x5au8; SPDM_MAX_HASH_SIZE]),
+                },
+                opaque: SpdmOpaqueStruct {
+                    data_size: MAX_SPDM_OPAQUE_SIZE as u16,
+                    data: [100u8; MAX_SPDM_OPAQUE_SIZE],
                 },
             }),
         };
@@ -1302,9 +1331,9 @@ mod tests {
                 payload.finish_request_attributes,
                 SpdmFinishRequestAttributes::SIGNATURE_INCLUDED
             );
-            assert_eq!(payload.req_slot_id, 100);
-            assert_eq!(payload.signature.data_size, RSASSA_4096_KEY_SIZE as u16);
-            for i in 0..RSASSA_4096_KEY_SIZE {
+            assert_eq!(payload.req_slot_id, 4);
+            assert_eq!(payload.signature.data_size, RSASSA_4096_SIG_SIZE as u16);
+            for i in 0..RSASSA_4096_SIG_SIZE {
                 assert_eq!(payload.signature.data[i], 0xa5u8);
             }
             assert_eq!(payload.verify_data.data_size, SHA512_DIGEST_SIZE as u16);
@@ -1322,8 +1351,12 @@ mod tests {
             },
             payload: SpdmMessagePayload::SpdmFinishResponse(SpdmFinishResponsePayload {
                 verify_data: SpdmDigestStruct {
-                    data_size: SPDM_MAX_HASH_SIZE as u16,
+                    data_size: SHA512_DIGEST_SIZE as u16,
                     data: Box::new([100u8; SPDM_MAX_HASH_SIZE]),
+                },
+                opaque: SpdmOpaqueStruct {
+                    data_size: MAX_SPDM_OPAQUE_SIZE as u16,
+                    data: [100u8; MAX_SPDM_OPAQUE_SIZE],
                 },
             }),
         };
@@ -1473,6 +1506,10 @@ mod tests {
                 verify_data: SpdmDigestStruct {
                     data_size: SPDM_MAX_HASH_SIZE as u16,
                     data: Box::new([100u8; SPDM_MAX_HASH_SIZE]),
+                },
+                opaque: SpdmOpaqueStruct {
+                    data_size: MAX_SPDM_OPAQUE_SIZE as u16,
+                    data: [100u8; MAX_SPDM_OPAQUE_SIZE],
                 },
             }),
         };
@@ -1638,7 +1675,7 @@ mod tests {
             },
             payload: SpdmMessagePayload::SpdmGetCertificateRequest(
                 SpdmGetCertificateRequestPayload {
-                    slot_id: 100,
+                    slot_id: 4,
                     offset: 100,
                     length: 100,
                 },
@@ -1652,7 +1689,7 @@ mod tests {
             SpdmRequestResponseCode::SpdmRequestGetCertificate
         );
         if let SpdmMessagePayload::SpdmGetCertificateRequest(payload) = &spdm_message.payload {
-            assert_eq!(payload.slot_id, 100);
+            assert_eq!(payload.slot_id, 4);
             assert_eq!(payload.offset, 100);
             assert_eq!(payload.length, 100);
         }
@@ -1664,7 +1701,12 @@ mod tests {
                 version: SpdmVersion::SpdmVersion10,
                 request_response_code: SpdmRequestResponseCode::SpdmResponsePskFinishRsp,
             },
-            payload: SpdmMessagePayload::SpdmPskFinishResponse(SpdmPskFinishResponsePayload {}),
+            payload: SpdmMessagePayload::SpdmPskFinishResponse(SpdmPskFinishResponsePayload {
+                opaque: SpdmOpaqueStruct {
+                    data_size: MAX_SPDM_OPAQUE_SIZE as u16,
+                    data: [100u8; MAX_SPDM_OPAQUE_SIZE],
+                },
+            }),
         };
         create_spdm_context!(context);
         new_spdm_message(value, context);

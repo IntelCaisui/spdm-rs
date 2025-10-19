@@ -1,25 +1,3 @@
-impl Codec for SpdmCertChainData {
-    fn encode(&self, writer: &mut Writer) -> Result<usize, codec::EncodeErr> {
-        let mut size = 0usize;
-        size += self.data_size.encode(writer)?;
-        for d in self.data.iter() {
-            size += d.encode(writer)?;
-        }
-        Ok(size)
-    }
-
-    fn read(reader: &mut Reader) -> Option<SpdmCertChainData> {
-        let data_size = u16::read(reader)?;
-        if data_size > config::MAX_SPDM_CERT_CHAIN_DATA_SIZE as u16 {
-            return None;
-        }
-        let mut data = [0u8; config::MAX_SPDM_CERT_CHAIN_DATA_SIZE];
-        for d in data.iter_mut() {
-            *d = u8::read(reader)?;
-        }
-        Some(SpdmCertChainData { data_size, data })
-    }
-}
 // Copyright (c) 2020 Intel Corporation
 //
 // SPDX-License-Identifier: Apache-2.0 or MIT
@@ -36,18 +14,20 @@ pub const SHA256_DIGEST_SIZE: usize = 32;
 pub const SHA384_DIGEST_SIZE: usize = 48;
 pub const SHA512_DIGEST_SIZE: usize = 64;
 
-pub const RSASSA_2048_KEY_SIZE: usize = 256;
-pub const RSASSA_3072_KEY_SIZE: usize = 384;
-pub const RSASSA_4096_KEY_SIZE: usize = 512;
-pub const RSAPSS_2048_KEY_SIZE: usize = 256;
-pub const RSAPSS_3072_KEY_SIZE: usize = 384;
-pub const RSAPSS_4096_KEY_SIZE: usize = 512;
+pub const RSASSA_2048_SIG_SIZE: usize = 256;
+pub const RSASSA_3072_SIG_SIZE: usize = 384;
+pub const RSASSA_4096_SIG_SIZE: usize = 512;
+pub const RSAPSS_2048_SIG_SIZE: usize = 256;
+pub const RSAPSS_3072_SIG_SIZE: usize = 384;
+pub const RSAPSS_4096_SIG_SIZE: usize = 512;
 
-pub const ECDSA_ECC_NIST_P256_KEY_SIZE: usize = 32 * 2;
-pub const ECDSA_ECC_NIST_P384_KEY_SIZE: usize = 48 * 2;
+pub const ECDSA_ECC_NIST_P256_SIG_SIZE: usize = 32 * 2;
+pub const ECDSA_ECC_NIST_P384_SIG_SIZE: usize = 48 * 2;
 
 pub const SECP_256_R1_KEY_SIZE: usize = 32 * 2;
 pub const SECP_384_R1_KEY_SIZE: usize = 48 * 2;
+pub const SECP_256_R1_SHARED_SECRET_SIZE: usize = 32;
+pub const SECP_384_R1_SHARED_SECRET_SIZE: usize = 48;
 
 pub const AEAD_AES_128_GCM_KEY_SIZE: usize = 16;
 pub const AEAD_AES_256_GCM_KEY_SIZE: usize = 32;
@@ -70,11 +50,59 @@ pub const SPDM_CHALLENGE_CONTEXT_SIZE: usize = 8;
 pub const SPDM_MEASUREMENTS_CONTEXT_SIZE: usize = 8;
 pub const SPDM_RANDOM_SIZE: usize = 32;
 pub const SPDM_MAX_HASH_SIZE: usize = 64;
-pub const SPDM_MAX_ASYM_KEY_SIZE: usize = 512;
 pub const SPDM_MAX_DHE_KEY_SIZE: usize = SECP_384_R1_KEY_SIZE;
 pub const SPDM_MAX_AEAD_KEY_SIZE: usize = 32;
 pub const SPDM_MAX_AEAD_IV_SIZE: usize = 12;
 pub const SPDM_MAX_HKDF_OKM_SIZE: usize = SPDM_MAX_HASH_SIZE;
+
+pub const MLDSA_44_SIG_SIZE: usize = 2420;
+pub const MLDSA_65_SIG_SIZE: usize = 3309;
+pub const MLDSA_87_SIG_SIZE: usize = 4627;
+
+pub const SPDM_MAX_BASE_ASYM_SIG_SIZE: usize = RSASSA_4096_SIG_SIZE;
+pub const SPDM_MAX_PQC_ASYM_SIG_SIZE: usize = MLDSA_87_SIG_SIZE;
+pub const SPDM_MAX_ASYM_SIG_SIZE: usize =
+    if SPDM_MAX_BASE_ASYM_SIG_SIZE > SPDM_MAX_PQC_ASYM_SIG_SIZE {
+        SPDM_MAX_BASE_ASYM_SIG_SIZE
+    } else {
+        SPDM_MAX_PQC_ASYM_SIG_SIZE
+    };
+
+pub const MLKEM_512_ENCAP_KEY_SIZE: usize = 800;
+pub const MLKEM_768_ENCAP_KEY_SIZE: usize = 1184;
+pub const MLKEM_1024_ENCAP_KEY_SIZE: usize = 1568;
+
+pub const MLKEM_512_CIPHER_TEXT_SIZE: usize = 768;
+pub const MLKEM_768_CIPHER_TEXT_SIZE: usize = 1088;
+pub const MLKEM_1024_CIPHER_TEXT_SIZE: usize = 1568;
+
+pub const SPDM_MAX_KEM_ENCAP_KEY_SIZE: usize = MLKEM_1024_ENCAP_KEY_SIZE;
+pub const SPDM_MAX_KEM_CIPHER_TEXT_SIZE: usize = MLKEM_1024_CIPHER_TEXT_SIZE;
+pub const SPDM_MAX_REQ_KEY_EXCHANGE_SIZE: usize =
+    if SPDM_MAX_DHE_KEY_SIZE > SPDM_MAX_KEM_ENCAP_KEY_SIZE {
+        SPDM_MAX_DHE_KEY_SIZE
+    } else {
+        SPDM_MAX_KEM_ENCAP_KEY_SIZE
+    };
+pub const SPDM_MAX_RSP_KEY_EXCHANGE_SIZE: usize =
+    if SPDM_MAX_DHE_KEY_SIZE > SPDM_MAX_KEM_CIPHER_TEXT_SIZE {
+        SPDM_MAX_DHE_KEY_SIZE
+    } else {
+        SPDM_MAX_KEM_CIPHER_TEXT_SIZE
+    };
+
+pub const MLKEM_512_SHARED_SECRET_SIZE: usize = 32;
+pub const MLKEM_768_SHARED_SECRET_SIZE: usize = 32;
+pub const MLKEM_1024_SHARED_SECRET_SIZE: usize = 32;
+
+pub const SPDM_MAX_DHE_SHARED_SECRET_SIZE: usize = SECP_384_R1_SHARED_SECRET_SIZE;
+pub const SPDM_MAX_KEM_SHARED_SECRET_SIZE: usize = MLKEM_1024_SHARED_SECRET_SIZE;
+pub const SPDM_MAX_SHARED_SECRET_SIZE: usize =
+    if SPDM_MAX_DHE_SHARED_SECRET_SIZE > SPDM_MAX_KEM_SHARED_SECRET_SIZE {
+        SPDM_MAX_DHE_SHARED_SECRET_SIZE
+    } else {
+        SPDM_MAX_KEM_SHARED_SECRET_SIZE
+    };
 
 bitflags! {
     #[derive(Default)]
@@ -255,16 +283,16 @@ impl SpdmBaseAsymAlgo {
         }
         *self = SpdmBaseAsymAlgo::empty();
     }
-    pub fn get_size(&self) -> u16 {
+    pub fn get_sig_size(&self) -> u16 {
         match *self {
-            SpdmBaseAsymAlgo::TPM_ALG_RSASSA_2048 => RSASSA_2048_KEY_SIZE as u16,
-            SpdmBaseAsymAlgo::TPM_ALG_RSAPSS_2048 => RSAPSS_2048_KEY_SIZE as u16,
-            SpdmBaseAsymAlgo::TPM_ALG_RSASSA_3072 => RSASSA_3072_KEY_SIZE as u16,
-            SpdmBaseAsymAlgo::TPM_ALG_RSAPSS_3072 => RSAPSS_3072_KEY_SIZE as u16,
-            SpdmBaseAsymAlgo::TPM_ALG_RSASSA_4096 => RSASSA_4096_KEY_SIZE as u16,
-            SpdmBaseAsymAlgo::TPM_ALG_RSAPSS_4096 => RSAPSS_4096_KEY_SIZE as u16,
-            SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P256 => ECDSA_ECC_NIST_P256_KEY_SIZE as u16,
-            SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P384 => ECDSA_ECC_NIST_P384_KEY_SIZE as u16,
+            SpdmBaseAsymAlgo::TPM_ALG_RSASSA_2048 => RSASSA_2048_SIG_SIZE as u16,
+            SpdmBaseAsymAlgo::TPM_ALG_RSAPSS_2048 => RSAPSS_2048_SIG_SIZE as u16,
+            SpdmBaseAsymAlgo::TPM_ALG_RSASSA_3072 => RSASSA_3072_SIG_SIZE as u16,
+            SpdmBaseAsymAlgo::TPM_ALG_RSAPSS_3072 => RSAPSS_3072_SIG_SIZE as u16,
+            SpdmBaseAsymAlgo::TPM_ALG_RSASSA_4096 => RSASSA_4096_SIG_SIZE as u16,
+            SpdmBaseAsymAlgo::TPM_ALG_RSAPSS_4096 => RSAPSS_4096_SIG_SIZE as u16,
+            SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P256 => ECDSA_ECC_NIST_P256_SIG_SIZE as u16,
+            SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P384 => ECDSA_ECC_NIST_P384_SIG_SIZE as u16,
             _ => {
                 panic!("invalid AsymAlgo");
             }
@@ -295,6 +323,73 @@ impl Codec for SpdmBaseAsymAlgo {
         let bits = u32::read(r)?;
 
         SpdmBaseAsymAlgo::from_bits(bits & SpdmBaseAsymAlgo::VALID_MASK.bits)
+    }
+}
+
+bitflags! {
+    #[derive(Default)]
+    pub struct SpdmPqcAsymAlgo: u32 {
+        const ALG_MLDSA_44         = 0b0000_0001;
+        const ALG_MLDSA_65         = 0b0000_0010;
+        const ALG_MLDSA_87         = 0b0000_0100;
+        const VALID_MASK = Self::ALG_MLDSA_44.bits
+            | Self::ALG_MLDSA_65.bits
+            | Self::ALG_MLDSA_87.bits;
+    }
+}
+
+impl SpdmPqcAsymAlgo {
+    pub fn prioritize(&mut self, peer: SpdmPqcAsymAlgo) {
+        let prio_table = [
+            SpdmPqcAsymAlgo::ALG_MLDSA_87,
+            SpdmPqcAsymAlgo::ALG_MLDSA_65,
+            SpdmPqcAsymAlgo::ALG_MLDSA_44,
+        ];
+
+        *self &= peer;
+        for v in prio_table.iter() {
+            if self.bits() & v.bits() != 0 {
+                *self = *v;
+                return;
+            }
+        }
+        *self = SpdmPqcAsymAlgo::empty();
+    }
+    pub fn get_sig_size(&self) -> u16 {
+        match *self {
+            SpdmPqcAsymAlgo::ALG_MLDSA_44 => MLDSA_44_SIG_SIZE as u16,
+            SpdmPqcAsymAlgo::ALG_MLDSA_65 => MLDSA_65_SIG_SIZE as u16,
+            SpdmPqcAsymAlgo::ALG_MLDSA_87 => MLDSA_87_SIG_SIZE as u16,
+            _ => {
+                panic!("invalid PqcAsymAlgo");
+            }
+        }
+    }
+
+    /// return true if no more than one is selected
+    /// return false if two or more is selected
+    pub fn is_no_more_than_one_selected(&self) -> bool {
+        self.bits() == 0 || self.bits() & (self.bits() - 1) == 0
+    }
+
+    pub fn is_valid(&self) -> bool {
+        (self.bits & Self::VALID_MASK.bits) != 0
+    }
+
+    pub fn is_valid_one_select(&self) -> bool {
+        self.is_no_more_than_one_selected() && self.is_valid()
+    }
+}
+
+impl Codec for SpdmPqcAsymAlgo {
+    fn encode(&self, bytes: &mut Writer) -> Result<usize, codec::EncodeErr> {
+        self.bits().encode(bytes)
+    }
+
+    fn read(r: &mut Reader) -> Option<SpdmPqcAsymAlgo> {
+        let bits = u32::read(r)?;
+
+        SpdmPqcAsymAlgo::from_bits(bits & SpdmPqcAsymAlgo::VALID_MASK.bits)
     }
 }
 
@@ -453,7 +548,7 @@ impl SpdmDheAlgo {
         }
         *self = SpdmDheAlgo::empty();
     }
-    pub fn get_size(&self) -> u16 {
+    pub fn get_key_size(&self) -> u16 {
         match *self {
             SpdmDheAlgo::SECP_256_R1 => SECP_256_R1_KEY_SIZE as u16,
             SpdmDheAlgo::SECP_384_R1 => SECP_384_R1_KEY_SIZE as u16,
@@ -487,6 +582,83 @@ impl Codec for SpdmDheAlgo {
         let bits = u16::read(r)?;
 
         SpdmDheAlgo::from_bits(bits & SpdmDheAlgo::VALID_MASK.bits)
+    }
+}
+
+bitflags! {
+    #[derive(Default)]
+    pub struct SpdmKemAlgo: u16 {
+        const ALG_MLKEM_512 = 0b0000_0001;
+        const ALG_MLKEM_768 = 0b0000_0010;
+        const ALG_MLKEM_1024 = 0b0000_0100;
+        const VALID_MASK = Self::ALG_MLKEM_512.bits
+            | Self::ALG_MLKEM_768.bits
+            | Self::ALG_MLKEM_1024.bits;
+    }
+}
+
+impl SpdmKemAlgo {
+    pub fn prioritize(&mut self, peer: SpdmKemAlgo) {
+        let prio_table = [
+            SpdmKemAlgo::ALG_MLKEM_1024,
+            SpdmKemAlgo::ALG_MLKEM_768,
+            SpdmKemAlgo::ALG_MLKEM_512,
+        ];
+
+        *self &= peer;
+        for v in prio_table.iter() {
+            if self.bits() & v.bits() != 0 {
+                *self = *v;
+                return;
+            }
+        }
+        *self = SpdmKemAlgo::empty();
+    }
+    pub fn get_encap_key_size(&self) -> u16 {
+        match *self {
+            SpdmKemAlgo::ALG_MLKEM_512 => MLKEM_512_ENCAP_KEY_SIZE as u16,
+            SpdmKemAlgo::ALG_MLKEM_768 => MLKEM_768_ENCAP_KEY_SIZE as u16,
+            SpdmKemAlgo::ALG_MLKEM_1024 => MLKEM_1024_ENCAP_KEY_SIZE as u16,
+            _ => {
+                panic!("invalid KemAlgo");
+            }
+        }
+    }
+    pub fn get_cipher_text_size(&self) -> u16 {
+        match *self {
+            SpdmKemAlgo::ALG_MLKEM_512 => MLKEM_512_CIPHER_TEXT_SIZE as u16,
+            SpdmKemAlgo::ALG_MLKEM_768 => MLKEM_768_CIPHER_TEXT_SIZE as u16,
+            SpdmKemAlgo::ALG_MLKEM_1024 => MLKEM_1024_CIPHER_TEXT_SIZE as u16,
+            _ => {
+                panic!("invalid KemAlgo");
+            }
+        }
+    }
+
+    /// return true if no more than one is selected
+    /// return false if two or more is selected
+    pub fn is_no_more_than_one_selected(&self) -> bool {
+        self.bits() == 0 || self.bits() & (self.bits() - 1) == 0
+    }
+
+    pub fn is_valid(&self) -> bool {
+        (self.bits & Self::VALID_MASK.bits) != 0
+    }
+
+    pub fn is_valid_one_select(&self) -> bool {
+        self.is_no_more_than_one_selected() && self.is_valid()
+    }
+}
+
+impl Codec for SpdmKemAlgo {
+    fn encode(&self, bytes: &mut Writer) -> Result<usize, codec::EncodeErr> {
+        self.bits().encode(bytes)
+    }
+
+    fn read(r: &mut Reader) -> Option<SpdmKemAlgo> {
+        let bits = u16::read(r)?;
+
+        SpdmKemAlgo::from_bits(bits & SpdmKemAlgo::VALID_MASK.bits)
     }
 }
 
@@ -621,16 +793,16 @@ impl SpdmReqAsymAlgo {
         }
         *self = SpdmReqAsymAlgo::empty();
     }
-    pub fn get_size(&self) -> u16 {
+    pub fn get_sig_size(&self) -> u16 {
         match *self {
-            SpdmReqAsymAlgo::TPM_ALG_RSASSA_2048 => RSASSA_2048_KEY_SIZE as u16,
-            SpdmReqAsymAlgo::TPM_ALG_RSAPSS_2048 => RSAPSS_2048_KEY_SIZE as u16,
-            SpdmReqAsymAlgo::TPM_ALG_RSASSA_3072 => RSASSA_3072_KEY_SIZE as u16,
-            SpdmReqAsymAlgo::TPM_ALG_RSAPSS_3072 => RSAPSS_3072_KEY_SIZE as u16,
-            SpdmReqAsymAlgo::TPM_ALG_RSASSA_4096 => RSASSA_4096_KEY_SIZE as u16,
-            SpdmReqAsymAlgo::TPM_ALG_RSAPSS_4096 => RSAPSS_4096_KEY_SIZE as u16,
-            SpdmReqAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P256 => ECDSA_ECC_NIST_P256_KEY_SIZE as u16,
-            SpdmReqAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P384 => ECDSA_ECC_NIST_P384_KEY_SIZE as u16,
+            SpdmReqAsymAlgo::TPM_ALG_RSASSA_2048 => RSASSA_2048_SIG_SIZE as u16,
+            SpdmReqAsymAlgo::TPM_ALG_RSAPSS_2048 => RSAPSS_2048_SIG_SIZE as u16,
+            SpdmReqAsymAlgo::TPM_ALG_RSASSA_3072 => RSASSA_3072_SIG_SIZE as u16,
+            SpdmReqAsymAlgo::TPM_ALG_RSAPSS_3072 => RSAPSS_3072_SIG_SIZE as u16,
+            SpdmReqAsymAlgo::TPM_ALG_RSASSA_4096 => RSASSA_4096_SIG_SIZE as u16,
+            SpdmReqAsymAlgo::TPM_ALG_RSAPSS_4096 => RSAPSS_4096_SIG_SIZE as u16,
+            SpdmReqAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P256 => ECDSA_ECC_NIST_P256_SIG_SIZE as u16,
+            SpdmReqAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P384 => ECDSA_ECC_NIST_P384_SIG_SIZE as u16,
             _ => {
                 panic!("invalid ReqAsymAlgo");
             }
@@ -661,6 +833,93 @@ impl Codec for SpdmReqAsymAlgo {
         let bits = u16::read(r)?;
 
         SpdmReqAsymAlgo::from_bits(bits & SpdmReqAsymAlgo::VALID_MASK.bits)
+    }
+}
+
+impl SpdmReqAsymAlgo {
+    pub fn to_base(&self) -> SpdmBaseAsymAlgo {
+        SpdmBaseAsymAlgo::from_bits(self.bits() as u32).unwrap_or(SpdmBaseAsymAlgo::empty())
+    }
+
+    pub fn from_base(base: SpdmBaseAsymAlgo) -> Self {
+        SpdmReqAsymAlgo::from_bits(base.bits() as u16).unwrap_or(SpdmReqAsymAlgo::empty())
+    }
+}
+
+bitflags! {
+    #[derive(Default)]
+    pub struct SpdmPqcReqAsymAlgo: u16 {
+        const ALG_MLDSA_44         = 0b0000_0001;
+        const ALG_MLDSA_65         = 0b0000_0010;
+        const ALG_MLDSA_87         = 0b0000_0100;
+        const VALID_MASK = Self::ALG_MLDSA_44.bits
+            | Self::ALG_MLDSA_65.bits
+            | Self::ALG_MLDSA_87.bits;
+    }
+}
+
+impl SpdmPqcReqAsymAlgo {
+    pub fn prioritize(&mut self, peer: SpdmPqcReqAsymAlgo) {
+        let prio_table = [
+            SpdmPqcReqAsymAlgo::ALG_MLDSA_44,
+            SpdmPqcReqAsymAlgo::ALG_MLDSA_65,
+            SpdmPqcReqAsymAlgo::ALG_MLDSA_87,
+        ];
+
+        *self &= peer;
+        for v in prio_table.iter() {
+            if self.bits() & v.bits() != 0 {
+                *self = *v;
+                return;
+            }
+        }
+        *self = SpdmPqcReqAsymAlgo::empty();
+    }
+    pub fn get_sig_size(&self) -> u16 {
+        match *self {
+            SpdmPqcReqAsymAlgo::ALG_MLDSA_44 => MLDSA_44_SIG_SIZE as u16,
+            SpdmPqcReqAsymAlgo::ALG_MLDSA_65 => MLDSA_65_SIG_SIZE as u16,
+            SpdmPqcReqAsymAlgo::ALG_MLDSA_87 => MLDSA_87_SIG_SIZE as u16,
+            _ => {
+                panic!("invalid PqcReqAsymAlgo");
+            }
+        }
+    }
+
+    /// return true if no more than one is selected
+    /// return false if two or more is selected
+    pub fn is_no_more_than_one_selected(&self) -> bool {
+        self.bits() == 0 || self.bits() & (self.bits() - 1) == 0
+    }
+
+    pub fn is_valid(&self) -> bool {
+        (self.bits & Self::VALID_MASK.bits) != 0
+    }
+
+    pub fn is_valid_one_select(&self) -> bool {
+        self.is_no_more_than_one_selected() && self.is_valid()
+    }
+}
+
+impl Codec for SpdmPqcReqAsymAlgo {
+    fn encode(&self, bytes: &mut Writer) -> Result<usize, codec::EncodeErr> {
+        self.bits().encode(bytes)
+    }
+
+    fn read(r: &mut Reader) -> Option<SpdmPqcReqAsymAlgo> {
+        let bits = u16::read(r)?;
+
+        SpdmPqcReqAsymAlgo::from_bits(bits & SpdmPqcReqAsymAlgo::VALID_MASK.bits)
+    }
+}
+
+impl SpdmPqcReqAsymAlgo {
+    pub fn to_base(&self) -> SpdmPqcAsymAlgo {
+        SpdmPqcAsymAlgo::from_bits(self.bits() as u32).unwrap_or(SpdmPqcAsymAlgo::empty())
+    }
+
+    pub fn from_base(base: SpdmPqcAsymAlgo) -> Self {
+        SpdmPqcReqAsymAlgo::from_bits(base.bits() as u16).unwrap_or(SpdmPqcReqAsymAlgo::empty())
     }
 }
 
@@ -732,7 +991,9 @@ enum_builder! {
         SpdmAlgTypeDHE => 0x2,
         SpdmAlgTypeAEAD => 0x3,
         SpdmAlgTypeReqAsym => 0x4,
-        SpdmAlgTypeKeySchedule => 0x5
+        SpdmAlgTypeKeySchedule => 0x5,
+        SpdmAlgTypePqcReqAsym => 0x6,
+        SpdmAlgTypeKEM => 0x7
     }
 }
 impl Default for SpdmAlgType {
@@ -747,6 +1008,8 @@ pub enum SpdmAlg {
     SpdmAlgoAead(SpdmAeadAlgo),
     SpdmAlgoReqAsym(SpdmReqAsymAlgo),
     SpdmAlgoKeySchedule(SpdmKeyScheduleAlgo),
+    SpdmAlgoKem(SpdmKemAlgo),
+    SpdmAlgoPqcReqAsym(SpdmPqcReqAsymAlgo),
     // TBD: Need consider how to handle this SpdmAlgoUnknown
     SpdmAlgoUnknown(SpdmUnknownAlgo),
 }
@@ -784,6 +1047,12 @@ impl Codec for SpdmAlgStruct {
             SpdmAlg::SpdmAlgoKeySchedule(alg_supported) => {
                 cnt += alg_supported.encode(bytes)?;
             }
+            SpdmAlg::SpdmAlgoKem(alg_supported) => {
+                cnt += alg_supported.encode(bytes)?;
+            }
+            SpdmAlg::SpdmAlgoPqcReqAsym(alg_supported) => {
+                cnt += alg_supported.encode(bytes)?;
+            }
             SpdmAlg::SpdmAlgoUnknown(alg_supported) => {
                 cnt += alg_supported.encode(bytes)?;
             }
@@ -812,6 +1081,10 @@ impl Codec for SpdmAlgStruct {
             SpdmAlgType::SpdmAlgTypeKeySchedule => {
                 Some(SpdmAlg::SpdmAlgoKeySchedule(SpdmKeyScheduleAlgo::read(r)?))
             }
+            SpdmAlgType::SpdmAlgTypeKEM => Some(SpdmAlg::SpdmAlgoKem(SpdmKemAlgo::read(r)?)),
+            SpdmAlgType::SpdmAlgTypePqcReqAsym => {
+                Some(SpdmAlg::SpdmAlgoPqcReqAsym(SpdmPqcReqAsymAlgo::read(r)?))
+            }
             _ => return None,
         };
 
@@ -825,6 +1098,10 @@ impl Codec for SpdmAlgStruct {
 }
 
 pub const SPDM_MAX_SLOT_NUMBER: usize = 8;
+
+pub const SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE: u8 = 0xFF;
+pub const SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE_RSP: u8 = 0xF;
+pub const SPDM_PUB_KEY_SLOT_ID_FINISH: u8 = 0xFF;
 
 enum_builder! {
     @U8
@@ -976,13 +1253,13 @@ impl Codec for SpdmRandomStruct {
 #[derive(Debug, Clone)]
 pub struct SpdmSignatureStruct {
     pub data_size: u16,
-    pub data: [u8; SPDM_MAX_ASYM_KEY_SIZE],
+    pub data: [u8; SPDM_MAX_ASYM_SIG_SIZE],
 }
 impl Default for SpdmSignatureStruct {
     fn default() -> SpdmSignatureStruct {
         SpdmSignatureStruct {
             data_size: 0,
-            data: [0u8; SPDM_MAX_ASYM_KEY_SIZE],
+            data: [0u8; SPDM_MAX_ASYM_SIG_SIZE],
         }
     }
 }
@@ -995,9 +1272,9 @@ impl AsRef<[u8]> for SpdmSignatureStruct {
 
 impl From<BytesMut> for SpdmSignatureStruct {
     fn from(value: BytesMut) -> Self {
-        assert!(value.as_ref().len() <= SPDM_MAX_ASYM_KEY_SIZE);
+        assert!(value.as_ref().len() <= SPDM_MAX_ASYM_SIG_SIZE);
         let data_size = value.as_ref().len() as u16;
-        let mut data = [0u8; SPDM_MAX_ASYM_KEY_SIZE];
+        let mut data = [0u8; SPDM_MAX_ASYM_SIG_SIZE];
         data[0..value.as_ref().len()].copy_from_slice(value.as_ref());
         Self { data_size, data }
     }
@@ -1005,14 +1282,14 @@ impl From<BytesMut> for SpdmSignatureStruct {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct SpdmCertChainData {
-    pub data_size: u16,
+    pub data_size: u32,
     pub data: [u8; config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
 }
 
 impl Default for SpdmCertChainData {
     fn default() -> Self {
         SpdmCertChainData {
-            data_size: 0u16,
+            data_size: 0u32,
             data: [0u8; config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
         }
     }
@@ -1023,16 +1300,39 @@ impl AsRef<[u8]> for SpdmCertChainData {
     }
 }
 
+impl Codec for SpdmCertChainData {
+    fn encode(&self, writer: &mut Writer) -> Result<usize, codec::EncodeErr> {
+        let mut size = 0usize;
+        size += self.data_size.encode(writer)?;
+        for d in self.data.iter() {
+            size += d.encode(writer)?;
+        }
+        Ok(size)
+    }
+
+    fn read(reader: &mut Reader) -> Option<SpdmCertChainData> {
+        let data_size = u32::read(reader)?;
+        if data_size > config::MAX_SPDM_CERT_CHAIN_DATA_SIZE as u32 {
+            return None;
+        }
+        let mut data = [0u8; config::MAX_SPDM_CERT_CHAIN_DATA_SIZE];
+        for d in data.iter_mut() {
+            *d = u8::read(reader)?;
+        }
+        Some(SpdmCertChainData { data_size, data })
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct SpdmCertChainBuffer {
-    pub data_size: u16,
+    pub data_size: u32,
     pub data: [u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
 }
 
 impl Default for SpdmCertChainBuffer {
     fn default() -> Self {
         SpdmCertChainBuffer {
-            data_size: 0u16,
+            data_size: 0u32,
             data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
         }
     }
@@ -1078,7 +1378,7 @@ impl SpdmCertChainBuffer {
         buff.data[pos..(pos + len)].copy_from_slice(cert_chain);
         pos += len;
 
-        buff.data_size = pos as u16;
+        buff.data_size = pos as u32;
         Some(buff)
     }
 }
@@ -1094,8 +1394,8 @@ impl Codec for SpdmCertChainBuffer {
     }
 
     fn read(r: &mut Reader) -> Option<SpdmCertChainBuffer> {
-        let data_size = u16::read(r)?;
-        if data_size > (4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE) as u16 {
+        let data_size = u32::read(r)?;
+        if data_size > (4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE) as u32 {
             return None;
         }
         let mut data = [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE];
@@ -1295,6 +1595,188 @@ impl From<BytesMut> for SpdmDheExchangeStruct {
 }
 
 #[derive(Debug, Clone)]
+pub struct SpdmKemEncapKeyStruct {
+    pub data_size: u16,
+    pub data: [u8; SPDM_MAX_KEM_ENCAP_KEY_SIZE],
+}
+impl Default for SpdmKemEncapKeyStruct {
+    fn default() -> SpdmKemEncapKeyStruct {
+        SpdmKemEncapKeyStruct {
+            data_size: 0,
+            data: [0u8; SPDM_MAX_KEM_ENCAP_KEY_SIZE],
+        }
+    }
+}
+
+impl AsRef<[u8]> for SpdmKemEncapKeyStruct {
+    fn as_ref(&self) -> &[u8] {
+        &self.data[0..(self.data_size as usize)]
+    }
+}
+
+impl From<BytesMut> for SpdmKemEncapKeyStruct {
+    fn from(value: BytesMut) -> Self {
+        assert!(value.as_ref().len() <= SPDM_MAX_KEM_ENCAP_KEY_SIZE);
+        let data_size = value.as_ref().len() as u16;
+        let mut data = [0u8; SPDM_MAX_KEM_ENCAP_KEY_SIZE];
+        data[0..value.as_ref().len()].copy_from_slice(value.as_ref());
+        Self { data_size, data }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SpdmKemCipherTextStruct {
+    pub data_size: u16,
+    pub data: [u8; SPDM_MAX_KEM_CIPHER_TEXT_SIZE],
+}
+impl Default for SpdmKemCipherTextStruct {
+    fn default() -> SpdmKemCipherTextStruct {
+        SpdmKemCipherTextStruct {
+            data_size: 0,
+            data: [0u8; SPDM_MAX_KEM_CIPHER_TEXT_SIZE],
+        }
+    }
+}
+
+impl AsRef<[u8]> for SpdmKemCipherTextStruct {
+    fn as_ref(&self) -> &[u8] {
+        &self.data[0..(self.data_size as usize)]
+    }
+}
+
+impl From<BytesMut> for SpdmKemCipherTextStruct {
+    fn from(value: BytesMut) -> Self {
+        assert!(value.as_ref().len() <= SPDM_MAX_KEM_CIPHER_TEXT_SIZE);
+        let data_size = value.as_ref().len() as u16;
+        let mut data = [0u8; SPDM_MAX_KEM_CIPHER_TEXT_SIZE];
+        data[0..value.as_ref().len()].copy_from_slice(value.as_ref());
+        Self { data_size, data }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SpdmReqExchangeStruct {
+    pub data_size: u16,
+    pub data: [u8; SPDM_MAX_REQ_KEY_EXCHANGE_SIZE],
+}
+impl Default for SpdmReqExchangeStruct {
+    fn default() -> SpdmReqExchangeStruct {
+        SpdmReqExchangeStruct {
+            data_size: 0,
+            data: [0u8; SPDM_MAX_REQ_KEY_EXCHANGE_SIZE],
+        }
+    }
+}
+
+impl AsRef<[u8]> for SpdmReqExchangeStruct {
+    fn as_ref(&self) -> &[u8] {
+        &self.data[0..(self.data_size as usize)]
+    }
+}
+
+impl From<BytesMut> for SpdmReqExchangeStruct {
+    fn from(value: BytesMut) -> Self {
+        assert!(value.as_ref().len() <= SPDM_MAX_REQ_KEY_EXCHANGE_SIZE);
+        let data_size = value.as_ref().len() as u16;
+        let mut data = [0u8; SPDM_MAX_REQ_KEY_EXCHANGE_SIZE];
+        data[0..value.as_ref().len()].copy_from_slice(value.as_ref());
+        Self { data_size, data }
+    }
+}
+
+impl SpdmReqExchangeStruct {
+    pub fn from_dhe(dhe: SpdmDheExchangeStruct) -> Self {
+        assert!(dhe.data_size <= SPDM_MAX_REQ_KEY_EXCHANGE_SIZE as u16);
+        let data_size = dhe.data_size;
+        let mut data = [0u8; SPDM_MAX_REQ_KEY_EXCHANGE_SIZE];
+        data[..(dhe.data_size as usize)].copy_from_slice(&dhe.data[..(dhe.data_size as usize)]);
+        Self { data_size, data }
+    }
+    pub fn to_dhe(self) -> SpdmDheExchangeStruct {
+        assert!(self.data_size <= SPDM_MAX_DHE_KEY_SIZE as u16);
+        let data_size = self.data_size;
+        let mut data = [0u8; SPDM_MAX_DHE_KEY_SIZE];
+        data[..(self.data_size as usize)].copy_from_slice(&self.data[..(self.data_size as usize)]);
+        SpdmDheExchangeStruct { data_size, data }
+    }
+    pub fn from_kem(kem: SpdmKemEncapKeyStruct) -> Self {
+        assert!(kem.data_size <= SPDM_MAX_REQ_KEY_EXCHANGE_SIZE as u16);
+        let data_size = kem.data_size;
+        let mut data = [0u8; SPDM_MAX_REQ_KEY_EXCHANGE_SIZE];
+        data[..(kem.data_size as usize)].copy_from_slice(&kem.data[..(kem.data_size as usize)]);
+        Self { data_size, data }
+    }
+    pub fn to_kem(self) -> SpdmKemEncapKeyStruct {
+        assert!(self.data_size <= SPDM_MAX_KEM_ENCAP_KEY_SIZE as u16);
+        let data_size = self.data_size;
+        let mut data = [0u8; SPDM_MAX_KEM_ENCAP_KEY_SIZE];
+        data[..(self.data_size as usize)].copy_from_slice(&self.data[..(self.data_size as usize)]);
+        SpdmKemEncapKeyStruct { data_size, data }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SpdmRspExchangeStruct {
+    pub data_size: u16,
+    pub data: [u8; SPDM_MAX_RSP_KEY_EXCHANGE_SIZE],
+}
+impl Default for SpdmRspExchangeStruct {
+    fn default() -> SpdmRspExchangeStruct {
+        SpdmRspExchangeStruct {
+            data_size: 0,
+            data: [0u8; SPDM_MAX_RSP_KEY_EXCHANGE_SIZE],
+        }
+    }
+}
+
+impl AsRef<[u8]> for SpdmRspExchangeStruct {
+    fn as_ref(&self) -> &[u8] {
+        &self.data[0..(self.data_size as usize)]
+    }
+}
+
+impl From<BytesMut> for SpdmRspExchangeStruct {
+    fn from(value: BytesMut) -> Self {
+        assert!(value.as_ref().len() <= SPDM_MAX_RSP_KEY_EXCHANGE_SIZE);
+        let data_size = value.as_ref().len() as u16;
+        let mut data = [0u8; SPDM_MAX_RSP_KEY_EXCHANGE_SIZE];
+        data[0..value.as_ref().len()].copy_from_slice(value.as_ref());
+        Self { data_size, data }
+    }
+}
+
+impl SpdmRspExchangeStruct {
+    pub fn from_dhe(dhe: SpdmDheExchangeStruct) -> Self {
+        assert!(dhe.data_size <= SPDM_MAX_RSP_KEY_EXCHANGE_SIZE as u16);
+        let data_size = dhe.data_size;
+        let mut data = [0u8; SPDM_MAX_RSP_KEY_EXCHANGE_SIZE];
+        data[..(dhe.data_size as usize)].copy_from_slice(&dhe.data[..(dhe.data_size as usize)]);
+        Self { data_size, data }
+    }
+    pub fn to_dhe(self) -> SpdmDheExchangeStruct {
+        assert!(self.data_size <= SPDM_MAX_DHE_KEY_SIZE as u16);
+        let data_size = self.data_size;
+        let mut data = [0u8; SPDM_MAX_DHE_KEY_SIZE];
+        data[..(self.data_size as usize)].copy_from_slice(&self.data[..(self.data_size as usize)]);
+        SpdmDheExchangeStruct { data_size, data }
+    }
+    pub fn from_kem(kem: SpdmKemCipherTextStruct) -> Self {
+        assert!(kem.data_size <= SPDM_MAX_REQ_KEY_EXCHANGE_SIZE as u16);
+        let data_size = kem.data_size;
+        let mut data = [0u8; SPDM_MAX_REQ_KEY_EXCHANGE_SIZE];
+        data[..(kem.data_size as usize)].copy_from_slice(&kem.data[..(kem.data_size as usize)]);
+        Self { data_size, data }
+    }
+    pub fn to_kem(self) -> SpdmKemCipherTextStruct {
+        assert!(self.data_size <= SPDM_MAX_KEM_CIPHER_TEXT_SIZE as u16);
+        let data_size = self.data_size;
+        let mut data = [0u8; SPDM_MAX_KEM_CIPHER_TEXT_SIZE];
+        data[..(self.data_size as usize)].copy_from_slice(&self.data[..(self.data_size as usize)]);
+        SpdmKemCipherTextStruct { data_size, data }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SpdmPskContextStruct {
     pub data_size: u16,
     pub data: [u8; config::MAX_SPDM_PSK_CONTEXT_SIZE],
@@ -1424,7 +1906,7 @@ macro_rules! create_sensitive_datatype {
 }
 
 create_sensitive_datatype!(Name: SpdmDigestStruct, Size: SPDM_MAX_HASH_SIZE);
-create_sensitive_datatype!(Name: SpdmDheFinalKeyStruct, Size: SPDM_MAX_DHE_KEY_SIZE);
+create_sensitive_datatype!(Name: SpdmSharedSecretFinalKeyStruct, Size: SPDM_MAX_SHARED_SECRET_SIZE);
 create_sensitive_datatype!(Name: SpdmHandshakeSecretStruct, Size: SPDM_MAX_HASH_SIZE);
 create_sensitive_datatype!(
     Name: SpdmDirectionHandshakeSecretStruct,
@@ -1456,7 +1938,7 @@ pub enum SpdmMajorSecret<'a> {
 #[derive(Debug, Clone)]
 pub enum SpdmHkdfInputKeyingMaterial<'a> {
     SpdmZeroFilled(&'a SpdmZeroFilledStruct),
-    SpdmDheFinalKey(&'a SpdmDheFinalKeyStruct),
+    SpdmSharedSecretFinalKey(&'a SpdmSharedSecretFinalKeyStruct),
     SpdmHandshakeSecret(&'a SpdmHandshakeSecretStruct),
     SpdmDirectionHandshakeSecret(&'a SpdmDirectionHandshakeSecretStruct),
     SpdmFinishedKey(&'a SpdmFinishedKeyStruct),
@@ -1469,7 +1951,7 @@ impl AsRef<[u8]> for SpdmHkdfInputKeyingMaterial<'_> {
     fn as_ref(&self) -> &[u8] {
         match self {
             SpdmHkdfInputKeyingMaterial::SpdmZeroFilled(inner) => inner.as_ref(),
-            SpdmHkdfInputKeyingMaterial::SpdmDheFinalKey(inner) => inner.as_ref(),
+            SpdmHkdfInputKeyingMaterial::SpdmSharedSecretFinalKey(inner) => inner.as_ref(),
             SpdmHkdfInputKeyingMaterial::SpdmHandshakeSecret(inner) => inner.as_ref(),
             SpdmHkdfInputKeyingMaterial::SpdmDirectionHandshakeSecret(inner) => inner.as_ref(),
             SpdmHkdfInputKeyingMaterial::SpdmDigest(inner) => inner.as_ref(),
@@ -1484,7 +1966,7 @@ impl SpdmHkdfInputKeyingMaterial<'_> {
     pub fn get_data_size(&self) -> u16 {
         match self {
             SpdmHkdfInputKeyingMaterial::SpdmZeroFilled(inner) => inner.data_size,
-            SpdmHkdfInputKeyingMaterial::SpdmDheFinalKey(inner) => inner.data_size,
+            SpdmHkdfInputKeyingMaterial::SpdmSharedSecretFinalKey(inner) => inner.data_size,
             SpdmHkdfInputKeyingMaterial::SpdmHandshakeSecret(inner) => inner.data_size,
             SpdmHkdfInputKeyingMaterial::SpdmDirectionHandshakeSecret(inner) => inner.data_size,
             SpdmHkdfInputKeyingMaterial::SpdmDigest(inner) => inner.data_size,
@@ -1744,7 +2226,7 @@ impl SpdmHkdfPseudoRandomKey {
                 SpdmHkdfInputKeyingMaterial::SpdmZeroFilled(inner) => prk.data
                     [..inner.data_size as usize]
                     .copy_from_slice(&inner.data[..inner.data_size as usize]),
-                SpdmHkdfInputKeyingMaterial::SpdmDheFinalKey(inner) => prk.data
+                SpdmHkdfInputKeyingMaterial::SpdmSharedSecretFinalKey(inner) => prk.data
                     [..inner.data_size as usize]
                     .copy_from_slice(&inner.data[..inner.data_size as usize]),
                 SpdmHkdfInputKeyingMaterial::SpdmHandshakeSecret(inner) => prk.data
@@ -2052,7 +2534,7 @@ mod tests {
         let bytes_mut = BytesMut::new();
         let spdm_signature_struct = SpdmSignatureStruct::from(bytes_mut);
         assert_eq!(spdm_signature_struct.data_size, 0);
-        for i in 0..SPDM_MAX_ASYM_KEY_SIZE {
+        for i in 0..SPDM_MAX_ASYM_SIG_SIZE {
             assert_eq!(spdm_signature_struct.data[i], 0);
         }
     }
@@ -2079,43 +2561,43 @@ mod tests {
     #[should_panic(expected = "invalid AsymAlgo")]
     fn test_case1_spdm_base_asym_algo() {
         let mut value = SpdmBaseAsymAlgo::TPM_ALG_RSASSA_2048;
-        assert_eq!(value.get_size(), RSASSA_2048_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), RSASSA_2048_SIG_SIZE as u16);
 
         value = SpdmBaseAsymAlgo::TPM_ALG_RSAPSS_2048;
-        assert_eq!(value.get_size(), RSAPSS_2048_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), RSAPSS_2048_SIG_SIZE as u16);
 
         value = SpdmBaseAsymAlgo::TPM_ALG_RSASSA_3072;
-        assert_eq!(value.get_size(), RSASSA_3072_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), RSASSA_3072_SIG_SIZE as u16);
 
         value = SpdmBaseAsymAlgo::TPM_ALG_RSAPSS_3072;
-        assert_eq!(value.get_size(), RSAPSS_3072_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), RSAPSS_3072_SIG_SIZE as u16);
 
         value = SpdmBaseAsymAlgo::TPM_ALG_RSASSA_4096;
-        assert_eq!(value.get_size(), RSASSA_4096_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), RSASSA_4096_SIG_SIZE as u16);
 
         value = SpdmBaseAsymAlgo::TPM_ALG_RSAPSS_4096;
-        assert_eq!(value.get_size(), RSAPSS_4096_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), RSAPSS_4096_SIG_SIZE as u16);
 
         value = SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P256;
-        assert_eq!(value.get_size(), ECDSA_ECC_NIST_P256_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), ECDSA_ECC_NIST_P256_SIG_SIZE as u16);
 
         value = SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P384;
-        assert_eq!(value.get_size(), ECDSA_ECC_NIST_P384_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), ECDSA_ECC_NIST_P384_SIG_SIZE as u16);
 
         value = SpdmBaseAsymAlgo::empty();
-        value.get_size();
+        value.get_sig_size();
     }
     #[test]
     #[should_panic(expected = "invalid DheAlgo")]
     fn test_case1_spdm_dhe_algo() {
         let mut value = SpdmDheAlgo::SECP_256_R1;
-        assert_eq!(value.get_size(), SECP_256_R1_KEY_SIZE as u16);
+        assert_eq!(value.get_key_size(), SECP_256_R1_KEY_SIZE as u16);
 
         value = SpdmDheAlgo::SECP_384_R1;
-        assert_eq!(value.get_size(), SECP_384_R1_KEY_SIZE as u16);
+        assert_eq!(value.get_key_size(), SECP_384_R1_KEY_SIZE as u16);
 
         value = SpdmDheAlgo::empty();
-        value.get_size();
+        value.get_key_size();
     }
     #[test]
     #[should_panic(expected = "invalid AeadAlgo")]
@@ -2181,31 +2663,31 @@ mod tests {
     #[should_panic(expected = "invalid ReqAsymAlgo")]
     fn test_case1_spdm_req_asym_algo() {
         let mut value = SpdmReqAsymAlgo::TPM_ALG_RSASSA_2048;
-        assert_eq!(value.get_size(), RSASSA_2048_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), RSASSA_2048_SIG_SIZE as u16);
 
         value = SpdmReqAsymAlgo::TPM_ALG_RSAPSS_2048;
-        assert_eq!(value.get_size(), RSAPSS_2048_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), RSAPSS_2048_SIG_SIZE as u16);
 
         value = SpdmReqAsymAlgo::TPM_ALG_RSASSA_3072;
-        assert_eq!(value.get_size(), RSASSA_3072_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), RSASSA_3072_SIG_SIZE as u16);
 
         value = SpdmReqAsymAlgo::TPM_ALG_RSAPSS_3072;
-        assert_eq!(value.get_size(), RSAPSS_3072_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), RSAPSS_3072_SIG_SIZE as u16);
 
         value = SpdmReqAsymAlgo::TPM_ALG_RSASSA_4096;
-        assert_eq!(value.get_size(), RSASSA_4096_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), RSASSA_4096_SIG_SIZE as u16);
 
         value = SpdmReqAsymAlgo::TPM_ALG_RSAPSS_4096;
-        assert_eq!(value.get_size(), RSAPSS_4096_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), RSAPSS_4096_SIG_SIZE as u16);
 
         value = SpdmReqAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P256;
-        assert_eq!(value.get_size(), ECDSA_ECC_NIST_P256_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), ECDSA_ECC_NIST_P256_SIG_SIZE as u16);
 
         value = SpdmReqAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P384;
-        assert_eq!(value.get_size(), ECDSA_ECC_NIST_P384_KEY_SIZE as u16);
+        assert_eq!(value.get_sig_size(), ECDSA_ECC_NIST_P384_SIG_SIZE as u16);
 
         value = SpdmReqAsymAlgo::empty();
-        value.get_size();
+        value.get_sig_size();
     }
     #[test]
     fn test_case0_spdm_unknown_algo() {

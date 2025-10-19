@@ -7,12 +7,11 @@ use spdmlib::common::SpdmConnectionState;
 use spdmlib::protocol::*;
 use spin::Mutex;
 extern crate alloc;
-use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::ops::DerefMut;
 
 async fn fuzz_handle_get_encapsulated_request(data: Arc<Vec<u8>>) {
     spdmlib::secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    spdmlib::secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     spdmlib::crypto::cert_operation::register(FAKE_CERT_OPERATION.clone());
     // TCD:
     // - id: 0

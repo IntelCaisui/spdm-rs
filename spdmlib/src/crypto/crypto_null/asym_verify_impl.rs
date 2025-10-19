@@ -13,6 +13,7 @@ pub static DEFAULT: SpdmAsymVerify = SpdmAsymVerify {
 fn asym_verify(
     base_hash_algo: SpdmBaseHashAlgo,
     base_asym_algo: SpdmBaseAsymAlgo,
+    raw_pub_key_used: bool,
     public_cert_der: &[u8],
     data: &[u8],
     signature: &SpdmSignatureStruct,

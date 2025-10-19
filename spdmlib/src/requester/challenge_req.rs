@@ -124,9 +124,8 @@ impl RequesterContext {
                             }
 
                             // verify signature
-                            let base_asym_size =
-                                self.common.negotiate_info.base_asym_sel.get_size() as usize;
-                            let temp_used = used - base_asym_size;
+                            let signature_size = self.common.get_asym_sig_size() as usize;
+                            let temp_used = used - signature_size;
 
                             self.common.append_message_c(send_buffer)?;
                             self.common.append_message_c(&receive_buffer[..temp_used])?;
@@ -190,7 +189,7 @@ impl RequesterContext {
         let cert_chain_data = &self.common.peer_info.peer_cert_chain[slot_id as usize]
             .as_ref()
             .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
-            .data[(4usize + self.common.negotiate_info.base_hash_sel.get_size() as usize)
+            .data[(4usize + self.common.get_hash_size() as usize)
             ..(self.common.peer_info.peer_cert_chain[slot_id as usize]
                 .as_ref()
                 .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
@@ -217,9 +216,11 @@ impl RequesterContext {
             return Err(SPDM_STATUS_INVALID_STATE_LOCAL);
         }
 
-        crypto::asym_verify::verify(
+        crypto::spdm_asym_verify(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.pqc_asym_sel,
+            false,
             cert_chain_data,
             message_sign.as_ref(),
             signature,
@@ -260,7 +261,7 @@ impl RequesterContext {
         let cert_chain_data = &self.common.peer_info.peer_cert_chain[slot_id as usize]
             .as_ref()
             .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
-            .data[(4usize + self.common.negotiate_info.base_hash_sel.get_size() as usize)
+            .data[(4usize + self.common.get_hash_size() as usize)
             ..(self.common.peer_info.peer_cert_chain[slot_id as usize]
                 .as_ref()
                 .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
@@ -282,9 +283,11 @@ impl RequesterContext {
                 .ok_or(SPDM_STATUS_BUFFER_FULL)?;
         }
 
-        crypto::asym_verify::verify(
+        crypto::spdm_asym_verify(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.pqc_asym_sel,
+            false,
             cert_chain_data,
             message_m1m2.as_ref(),
             signature,

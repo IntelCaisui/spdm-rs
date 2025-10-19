@@ -4,6 +4,7 @@
 
 use crate::common::SpdmCodec;
 use crate::common::INVALID_SLOT;
+use crate::common::{SpdmOpaqueStruct, MAX_SPDM_OPAQUE_SIZE};
 use crate::error::SpdmResult;
 use crate::error::SPDM_STATUS_CRYPTO_ERROR;
 use crate::error::SPDM_STATUS_INVALID_MSG_FIELD;
@@ -75,7 +76,7 @@ impl ResponderContext {
         let read_used = reader.used();
 
         // verify HMAC with finished_key
-        let base_hash_size = self.common.negotiate_info.base_hash_sel.get_size() as usize;
+        let base_hash_size = self.common.get_hash_size() as usize;
 
         let temp_used = read_used - base_hash_size;
 
@@ -175,7 +176,12 @@ impl ResponderContext {
                 version: self.common.negotiate_info.spdm_version_sel,
                 request_response_code: SpdmRequestResponseCode::SpdmResponsePskFinishRsp,
             },
-            payload: SpdmMessagePayload::SpdmPskFinishResponse(SpdmPskFinishResponsePayload {}),
+            payload: SpdmMessagePayload::SpdmPskFinishResponse(SpdmPskFinishResponsePayload {
+                opaque: SpdmOpaqueStruct {
+                    data_size: 0,
+                    data: [0u8; MAX_SPDM_OPAQUE_SIZE],
+                },
+            }),
         };
 
         let res = response.spdm_encode(&mut self.common, writer);
@@ -230,6 +236,7 @@ impl ResponderContext {
                 Some(writer.used_slice()),
             );
         };
+        session.set_th2(th2.clone());
         if let Err(e) = session.generate_data_secret(spdm_version_sel, &th2) {
             self.write_spdm_error(SpdmErrorCode::SpdmErrorUnspecified, 0, writer);
             return (Err(e), Some(writer.used_slice()));

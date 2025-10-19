@@ -38,7 +38,7 @@ use mctp_transport::MctpTransportEncap;
 use pcidoe_transport::{
     PciDoeDataObjectType, PciDoeMessageHeader, PciDoeTransportEncap, PciDoeVendorId,
 };
-use spdm_emu::crypto_callback::SECRET_ASYM_IMPL_INSTANCE;
+use spdm_emu::crypto_callback::{SECRET_ASYM_IMPL_INSTANCE, SECRET_PQC_ASYM_IMPL_INSTANCE};
 use spdm_emu::socket_io_transport::SocketIoTransport;
 use spdm_emu::spdm_emu::*;
 use spdm_emu::{secret_impl_sample::*, EMU_STACK_SIZE};
@@ -147,7 +147,7 @@ fn emu_main_inner() {
         negotiated_version: None,
         interface_id: InterfaceId {
             function_id: FunctionId {
-                requester_id: 0x1234,
+                requester_id: 0xbeef,
                 requester_segment: 0,
                 requester_segment_valid: false,
             },
@@ -267,7 +267,8 @@ async fn handle_message(
         | SpdmResponseCapabilityFlags::PSK_CAP_WITH_CONTEXT
         | SpdmResponseCapabilityFlags::ENCAP_CAP
         | SpdmResponseCapabilityFlags::HBEAT_CAP
-        | SpdmResponseCapabilityFlags::KEY_UPD_CAP;
+        | SpdmResponseCapabilityFlags::KEY_UPD_CAP
+        | SpdmResponseCapabilityFlags::LARGE_RESP_CAP;
     // | SpdmResponseCapabilityFlags::HANDSHAKE_IN_THE_CLEAR_CAP
     // | SpdmResponseCapabilityFlags::PUB_KEY_ID_CAP
     let rsp_capabilities = if cfg!(feature = "mut-auth") {
@@ -287,7 +288,8 @@ async fn handle_message(
             Some(SpdmVersion::SpdmVersion10),
             Some(SpdmVersion::SpdmVersion11),
             Some(SpdmVersion::SpdmVersion12),
-            None,
+            Some(SpdmVersion::SpdmVersion13),
+            Some(SpdmVersion::SpdmVersion14),
         ],
         rsp_capabilities,
         rsp_ct_exponent: 0,
@@ -352,7 +354,7 @@ async fn handle_message(
         inter_len,
         leaf_len
     );
-    my_cert_chain_data.data_size = (ca_len + inter_len + leaf_len) as u16;
+    my_cert_chain_data.data_size = (ca_len + inter_len + leaf_len) as u32;
     my_cert_chain_data.data[0..ca_len].copy_from_slice(ca_cert.as_ref());
     my_cert_chain_data.data[ca_len..(ca_len + inter_len)].copy_from_slice(inter_cert.as_ref());
     my_cert_chain_data.data[(ca_len + inter_len)..(ca_len + inter_len + leaf_len)]
@@ -375,6 +377,7 @@ async fn handle_message(
     };
 
     spdmlib::secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    spdmlib::secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     init_watchdog();
     let mut context = responder::ResponderContext::new(
         socket_io_transport,
@@ -524,6 +527,7 @@ pub async fn send_pci_discovery(
         vendor_id: PciDoeVendorId::PciDoeVendorIdPciSig,
         data_object_type: PciDoeDataObjectType::PciDoeDataObjectTypeDoeDiscovery,
         payload_length: 4,
+        connection_id: 0,
     };
     assert!(pcidoe_header.encode(&mut writer).is_ok());
     let header_size = writer.used();

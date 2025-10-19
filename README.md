@@ -24,9 +24,9 @@ performance.
 
 #### DMTF
 
-DMTF [DSP0274](https://www.dmtf.org/dsp/DSP0274) Security Protocol and Data Model (SPDM) Specification (version [1.2.2](https://www.dmtf.org/sites/default/files/standards/documents/DSP0274_1.2.2.pdf))
+DMTF [DSP0274](https://www.dmtf.org/dsp/DSP0274) Security Protocol and Data Model (SPDM) Specification (version [1.4.0](https://www.dmtf.org/sites/default/files/standards/documents/DSP0274_1.4.0.pdf))
 
-DMTF [DSP0277](https://www.dmtf.org/dsp/DSP0277) Secured Messages using SPDM Specification (version [1.1.1](https://www.dmtf.org/sites/default/files/standards/documents/DSP0277_1.1.1.pdf))
+DMTF [DSP0277](https://www.dmtf.org/dsp/DSP0277) Secured Messages using SPDM Specification (version [1.2.0](https://www.dmtf.org/sites/default/files/standards/documents/DSP0277_1.2.0.pdf))
 
 #### PCI-SIG
 
@@ -42,13 +42,15 @@ PCIe [TDISP ECN](https://members.pcisig.com/wg/PCI-SIG/document/18268) for PCIe 
 
 ### SPDM Implemented Requests and Responses
 
-SPDM 1.0: GET_VERSION, GET_CAPABILITIES, NEGOTIATE_ALGORITHMS, GET_DIGESTS, GET_CERTIFICATE, CHALLENGE, and GET_MEASUREMENTS.
+SPDM 1.0: GET_VERSION, GET_CAPABILITIES, NEGOTIATE_ALGORITHMS, GET_DIGESTS, GET_CERTIFICATE, CHALLENGE, GET_MEASUREMENTS, and VENDOR_DEFINED messages.
 
-SPDM 1.1: KEY_EXCHANGE, FINISH, PSK_EXCHANGE, PSK_FINISH, END_SESSION, HEARTBEAT, KEY_UPDATE messages.
+SPDM 1.1: KEY_EXCHANGE, FINISH, PSK_EXCHANGE, PSK_FINISH, END_SESSION, HEARTBEAT, KEY_UPDATE, and ENCAPSULATED messages.
 
-SPDM 1.2: Support 1.0/1.1 messages and new format. New SPDM 1.2 messages are not supported yet.
+SPDM 1.2: CHUNK messages.
 
-SPDM 1.3: Not support yet.
+SPDM 1.3: No new messages.
+
+SPDM 1.4: No new messages.
 
 ### SPDM Vendor Defined Message
 
@@ -58,9 +60,9 @@ TDISP 1.0 in PCIe 6.1.
 
 ### SPDM Capability Support
 
-Requester: ENCRYPT_CAP, MAC_CAP, KEY_EX_CAP, PSK_CAP, HBEAT_CAP, KEY_UPD_CAP, HANDSHAKE_IN_THE_CLEAR_CAP.
+Requester: ENCRYPT_CAP, MAC_CAP, KEY_EX_CAP, PSK_CAP, HBEAT_CAP, KEY_UPD_CAP, HANDSHAKE_IN_THE_CLEAR_CAP, CHUNK_CAP, LARGE_RESP_CAP.
 
-Responder: CERT_CAP, CHAL_CAP, MEAS_CAP_NO_SIG, MEAS_CAP_SIG, MEAS_FRESH_CAP, ENCRYPT_CAP, MAC_CAP, KEY_EX_CAP, PSK_CAP_WITHOUT_CONTEXT, PSK_CAP_WITH_CONTEXT, HBEAT_CAP, KEY_UPD_CAP, HANDSHAKE_IN_THE_CLEAR_CAP.
+Responder: CERT_CAP, CHAL_CAP, MEAS_CAP_NO_SIG, MEAS_CAP_SIG, MEAS_FRESH_CAP, ENCRYPT_CAP, MAC_CAP, KEY_EX_CAP, PSK_CAP_WITHOUT_CONTEXT, PSK_CAP_WITH_CONTEXT, HBEAT_CAP, KEY_UPD_CAP, HANDSHAKE_IN_THE_CLEAR_CAP, CHUNK_CAP, ALIAS_CERT_CAP, LARGE_RESP_CAP.
 
 ### SPDM Cryptographic Algorithm Support
 
@@ -250,6 +252,30 @@ cargo test --no-default-features --features "spdmlib/std,spdmlib/spdm-ring,async
 To run a specific test, use `cargo test <test_func_name>`
 
 To run test with println!() message, use `cargo test -- --nocapture`
+
+To run tests with chunk capability:
+```
+export SPDM_CONFIG="etc/chunk_test_config.json"
+cargo test --no-default-features --features "spdmlib/std,spdmlib/spdm-ring,spdm-emu/is_sync,spdmlib/is_sync,maybe-async/is_sync,idekm/is_sync,tdisp/is_sync,mctp_transport/is_sync,pcidoe_transport/is_sync,spdm-requester-emu/is_sync,spdm-responder-emu/is_sync,chunk-cap" -- --test-threads=1
+export SPDM_CONFIG="etc/config.json"
+```
+
+To run spdmlib-test:
+```
+pushd test/spdmlib-test
+cargo test --no-default-features -- --test-threads=1
+popd
+```
+
+To run spdmlib-test with chunk capability:
+```
+pushd test/spdmlib-test
+export SPDM_CONFIG="etc/chunk_test_config.json"
+cargo test --no-default-features --features "chunk-cap" -- --test-threads=1
+export SPDM_CONFIG="etc/config.json"
+popd
+```
+
 
 ## Collect memory usage
 

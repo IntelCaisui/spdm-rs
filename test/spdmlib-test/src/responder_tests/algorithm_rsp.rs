@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
 use crate::common::device_io::{FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::SECRET_ASYM_IMPL_INSTANCE;
+use crate::common::secret_callback::*;
 use crate::common::transport::PciDoeTransportEncap;
-use crate::common::util::{create_info, TestSpdmMessage};
+use crate::common::util::create_info;
+#[cfg(not(feature = "chunk-cap"))]
+use crate::common::util::TestSpdmMessage;
 use codec::{Codec, Reader, Writer};
 use log::debug;
 use spdmlib::common::*;
@@ -24,6 +26,7 @@ fn test_case0_handle_spdm_algorithm() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
         let shared_buffer = SharedBuffer::new();
         let socket_io_transport = Arc::new(Mutex::new(FakeSpdmDeviceIoReceve::new(Arc::new(
@@ -70,8 +73,9 @@ fn test_case0_handle_spdm_algorithm() {
                 | SpdmAlgoOtherParams::MULTI_KEY_CONN,
             base_asym_algo: SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P384,
             base_hash_algo: SpdmBaseHashAlgo::TPM_ALG_SHA_384,
+            pqc_asym_algo: SpdmPqcAsymAlgo::ALG_MLDSA_87,
             mel_specification: SpdmMelSpecification::DMTF_MEL_SPEC,
-            alg_struct_count: 4,
+            alg_struct_count: MAX_SUPPORTED_ALG_STRUCTURE_COUNT as u8,
             alg_struct: [
                 SpdmAlgStruct {
                     alg_type: SpdmAlgType::SpdmAlgTypeDHE,
@@ -93,6 +97,14 @@ fn test_case0_handle_spdm_algorithm() {
                         SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
                     ),
                 },
+                SpdmAlgStruct {
+                    alg_type: SpdmAlgType::SpdmAlgTypePqcReqAsym,
+                    alg_supported: SpdmAlg::SpdmAlgoPqcReqAsym(SpdmPqcReqAsymAlgo::ALG_MLDSA_87),
+                },
+                SpdmAlgStruct {
+                    alg_type: SpdmAlgType::SpdmAlgTypeKEM,
+                    alg_supported: SpdmAlg::SpdmAlgoKem(SpdmKemAlgo::ALG_MLKEM_1024),
+                },
             ],
         };
         assert!(value.spdm_encode(&mut context.common, &mut writer).is_ok());
@@ -103,7 +115,7 @@ fn test_case0_handle_spdm_algorithm() {
 
         let mut response_buffer = [0u8; MAX_SPDM_MSG_SIZE];
         let mut writer = Writer::init(&mut response_buffer);
-        context.handle_spdm_algorithm(bytes, &mut writer);
+        let _result = context.handle_spdm_algorithm(bytes, &mut writer);
 
         let data = context.common.runtime_info.message_a.as_ref();
         let u8_slice = &mut [0u8; 2048];
@@ -153,7 +165,10 @@ fn test_case0_handle_spdm_algorithm() {
             spdm_sturct_data.mel_specification,
             SpdmMelSpecification::DMTF_MEL_SPEC
         );
-        assert_eq!(spdm_sturct_data.alg_struct_count, 4);
+        assert_eq!(
+            spdm_sturct_data.alg_struct_count,
+            MAX_SUPPORTED_ALG_STRUCTURE_COUNT as u8
+        );
         assert_eq!(
             spdm_sturct_data.alg_struct[0].alg_type,
             SpdmAlgType::SpdmAlgTypeDHE
@@ -187,7 +202,7 @@ fn test_case0_handle_spdm_algorithm() {
             SpdmAlg::SpdmAlgoKeySchedule(SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,)
         );
 
-        let u8_slice = &u8_slice[46..];
+        let u8_slice = &u8_slice[54..];
         debug!("u8_slice: {:02X?}\n", u8_slice);
         let mut reader = Reader::init(u8_slice);
         let spdm_message: SpdmMessage =
@@ -226,7 +241,7 @@ fn test_case0_handle_spdm_algorithm() {
                 SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P384
             );
             assert_eq!(payload.base_hash_sel, SpdmBaseHashAlgo::TPM_ALG_SHA_384);
-            assert_eq!(payload.alg_struct_count, 4);
+            assert_eq!(payload.alg_struct_count, 1);
             assert_eq!(
                 payload.mel_specification_sel,
                 SpdmMelSpecification::DMTF_MEL_SPEC
@@ -236,33 +251,12 @@ fn test_case0_handle_spdm_algorithm() {
                 SpdmMelSpecification::DMTF_MEL_SPEC
             );
 
-            assert_eq!(payload.alg_struct[0].alg_type, SpdmAlgType::SpdmAlgTypeDHE);
             assert_eq!(
-                payload.alg_struct[0].alg_supported,
-                SpdmAlg::SpdmAlgoDhe(SpdmDheAlgo::empty())
-            );
-
-            assert_eq!(payload.alg_struct[1].alg_type, SpdmAlgType::SpdmAlgTypeAEAD);
-            assert_eq!(
-                payload.alg_struct[1].alg_supported,
-                SpdmAlg::SpdmAlgoAead(SpdmAeadAlgo::empty())
-            );
-
-            assert_eq!(
-                payload.alg_struct[2].alg_type,
-                SpdmAlgType::SpdmAlgTypeReqAsym
-            );
-            assert_eq!(
-                payload.alg_struct[2].alg_supported,
-                SpdmAlg::SpdmAlgoReqAsym(SpdmReqAsymAlgo::empty())
-            );
-
-            assert_eq!(
-                payload.alg_struct[3].alg_type,
+                payload.alg_struct[0].alg_type,
                 SpdmAlgType::SpdmAlgTypeKeySchedule
             );
             assert_eq!(
-                payload.alg_struct[3].alg_supported,
+                payload.alg_struct[0].alg_supported,
                 SpdmAlg::SpdmAlgoKeySchedule(SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE)
             );
         }
@@ -271,9 +265,10 @@ fn test_case0_handle_spdm_algorithm() {
     executor::block_on(future);
 }
 
+#[cfg(not(feature = "chunk-cap"))]
 pub fn consturct_algorithm_positive() -> (TestSpdmMessage, TestSpdmMessage) {
     use crate::protocol;
-    let (config_info, provision_info) = create_info();
+    let (config_info, _provision_info) = create_info();
     let negotiate_algorithm_msg = TestSpdmMessage {
         message: protocol::Message::NEGOTIATE_ALGORITHMS(
             protocol::algorithm::NEGOTIATE_ALGORITHMS {

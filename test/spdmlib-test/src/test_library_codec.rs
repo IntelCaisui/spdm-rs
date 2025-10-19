@@ -15,6 +15,7 @@ fn test_spdm_config_info_codec() {
             Some(SpdmVersion::SpdmVersion11),
             None,
             None,
+            None,
         ],
         req_capabilities: SpdmRequestCapabilityFlags::CERT_CAP
             | SpdmRequestCapabilityFlags::CHAL_CAP,
@@ -42,6 +43,9 @@ fn test_spdm_config_info_codec() {
             None,
         ],
         mel_specification: SpdmMelSpecification::DMTF_MEL_SPEC,
+        pqc_asym_algo: SpdmPqcAsymAlgo::ALG_MLDSA_87,
+        pqc_req_asym_algo: SpdmPqcReqAsymAlgo::ALG_MLDSA_87,
+        kem_algo: SpdmKemAlgo::ALG_MLKEM_1024,
     };
 
     // Test round-trip encoding/decoding
@@ -82,6 +86,9 @@ fn test_spdm_negotiate_info_codec() {
         mel_specification_sel: SpdmMelSpecification::DMTF_MEL_SPEC,
         multi_key_conn_req: true,
         multi_key_conn_rsp: false,
+        pqc_asym_sel: SpdmPqcAsymAlgo::empty(),
+        pqc_req_asym_sel: SpdmPqcReqAsymAlgo::empty(),
+        kem_sel: SpdmKemAlgo::empty(),
     };
 
     // Test round-trip encoding/decoding
@@ -390,6 +397,8 @@ fn test_spdm_provision_info_codec() {
         my_cert_chain_data: [None; SPDM_MAX_SLOT_NUMBER],
         my_cert_chain: [None; SPDM_MAX_SLOT_NUMBER],
         peer_root_cert_data: [None; MAX_ROOT_CERT_SUPPORT],
+        my_pub_key: None,
+        peer_pub_key: None,
         local_supported_slot_mask: 0xFF,
         local_key_pair_id: [None; SPDM_MAX_SLOT_NUMBER],
         local_cert_info: [None; SPDM_MAX_SLOT_NUMBER],
@@ -460,6 +469,8 @@ fn test_spdm_provision_info_codec_with_populated_data() {
             // Leave rest as None to stay within buffer limits
             arr
         },
+        my_pub_key: None,
+        peer_pub_key: None,
         local_supported_slot_mask: 0x03, // Only first two slots
         local_key_pair_id: [Some(1), Some(2), None, None, None, None, None, None],
         local_cert_info: [
@@ -562,6 +573,8 @@ fn test_spdm_provision_info_codec_edge_cases() {
         my_cert_chain_data: [None; SPDM_MAX_SLOT_NUMBER],
         my_cert_chain: [None; SPDM_MAX_SLOT_NUMBER],
         peer_root_cert_data: [None; MAX_ROOT_CERT_SUPPORT],
+        my_pub_key: None,
+        peer_pub_key: None,
         local_supported_slot_mask: 0xFF,
         local_key_pair_id: [None; SPDM_MAX_SLOT_NUMBER],
         local_cert_info: [None; SPDM_MAX_SLOT_NUMBER],
@@ -644,9 +657,9 @@ fn test_spdm_peer_info_codec_with_populated_data() {
     let mut cert_chain_templates = Vec::new();
     for slot in 0..SPDM_MAX_SLOT_NUMBER {
         let mut cert_chain = SpdmCertChainBuffer::default();
-        cert_chain.data_size = 80 + (slot as u16 * 10); // Smaller sizes to fit
+        cert_chain.data_size = 80 + (slot as u32 * 10); // Smaller sizes to fit
         for i in 0..cert_chain.data_size {
-            cert_chain.data[i as usize] = ((i + slot as u16 * 3) % 256) as u8;
+            cert_chain.data[i as usize] = ((i + slot as u32 * 3) % 256) as u8;
         }
         cert_chain_templates.push(cert_chain);
     }
@@ -908,12 +921,13 @@ fn test_option_fields_codec() {
             Some(SpdmVersion::SpdmVersion11),
             None,
             None,
+            None,
         ],
         ..Default::default()
     };
 
     let config_with_all_none_versions = SpdmConfigInfo {
-        spdm_version: [None; 4],
+        spdm_version: [None; MAX_SPDM_VERSION_COUNT],
         ..Default::default()
     };
 
@@ -1033,6 +1047,9 @@ fn test_spdm_negotiate_info_comprehensive() {
             mel_specification_sel: SpdmMelSpecification::DMTF_MEL_SPEC,
             multi_key_conn_req: false,
             multi_key_conn_rsp: false,
+            pqc_asym_sel: SpdmPqcAsymAlgo::empty(),
+            pqc_req_asym_sel: SpdmPqcReqAsymAlgo::empty(),
+            kem_sel: SpdmKemAlgo::empty(),
         },
         SpdmNegotiateInfo {
             spdm_version_sel: SpdmVersion::SpdmVersion12,
@@ -1057,6 +1074,9 @@ fn test_spdm_negotiate_info_comprehensive() {
             mel_specification_sel: SpdmMelSpecification::DMTF_MEL_SPEC,
             multi_key_conn_req: true,
             multi_key_conn_rsp: true,
+            pqc_asym_sel: SpdmPqcAsymAlgo::empty(),
+            pqc_req_asym_sel: SpdmPqcReqAsymAlgo::empty(),
+            kem_sel: SpdmKemAlgo::empty(),
         },
     ];
 
@@ -1159,6 +1179,8 @@ fn test_large_struct_memory_boundaries() {
         my_cert_chain_data: [None; SPDM_MAX_SLOT_NUMBER],
         my_cert_chain: [None; SPDM_MAX_SLOT_NUMBER],
         peer_root_cert_data: [None; MAX_ROOT_CERT_SUPPORT],
+        my_pub_key: None,
+        peer_pub_key: None,
         local_supported_slot_mask: 0xFF,
         local_key_pair_id: [None; SPDM_MAX_SLOT_NUMBER],
         local_cert_info: [None; SPDM_MAX_SLOT_NUMBER],

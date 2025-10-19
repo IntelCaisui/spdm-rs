@@ -223,6 +223,7 @@ impl ResponderContext {
         // create session structure
         let hash_algo = self.common.negotiate_info.base_hash_sel;
         let dhe_algo = self.common.negotiate_info.dhe_sel;
+        let kem_algo = self.common.negotiate_info.kem_sel;
         let aead_algo = self.common.negotiate_info.aead_sel;
         let key_schedule_algo = self.common.negotiate_info.key_schedule_sel;
         let sequence_number_count = {
@@ -258,7 +259,7 @@ impl ResponderContext {
         session.setup(session_id).unwrap();
         session.set_use_psk(true);
 
-        session.set_crypto_param(hash_algo, dhe_algo, aead_algo, key_schedule_algo);
+        session.set_crypto_param(hash_algo, dhe_algo, kem_algo, aead_algo, key_schedule_algo);
         session.set_transport_param(sequence_number_count, max_random_count);
 
         session.runtime_info.psk_hint = Some(psk_hint);
@@ -284,7 +285,7 @@ impl ResponderContext {
                 },
                 opaque: return_opaque,
                 verify_data: SpdmDigestStruct {
-                    data_size: self.common.negotiate_info.base_hash_sel.get_size(),
+                    data_size: self.common.get_hash_size(),
                     data: Box::new([0xcc; SPDM_MAX_HASH_SIZE]),
                 },
             }),
@@ -300,7 +301,7 @@ impl ResponderContext {
         }
         let used = writer.used();
 
-        let base_hash_size = self.common.negotiate_info.base_hash_sel.get_size() as usize;
+        let base_hash_size = self.common.get_hash_size() as usize;
         let temp_used = used - base_hash_size;
 
         if self
@@ -356,6 +357,7 @@ impl ResponderContext {
                 Some(writer.used_slice()),
             );
         };
+        session.set_th1(th1.clone());
         if let Err(e) = session.generate_handshake_secret(spdm_version_sel, &th1) {
             self.write_spdm_error(SpdmErrorCode::SpdmErrorUnspecified, 0, writer);
             return (Err(e), Some(writer.used_slice()));
@@ -466,6 +468,7 @@ impl ResponderContext {
                         Some(writer.used_slice()),
                     );
                 };
+                session.set_th2(th2.clone());
                 if session
                     .generate_data_secret(spdm_version_sel, &th2)
                     .is_err()

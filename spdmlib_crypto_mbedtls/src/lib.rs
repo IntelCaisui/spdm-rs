@@ -16,7 +16,9 @@ pub mod dhe_impl;
 pub mod hash_impl;
 pub mod hkdf_impl;
 pub mod hmac_impl;
+pub mod kem_impl;
 pub mod rand_impl;
 
 pub mod asym_verify_impl;
 pub mod cert_operation_impl;
+pub mod pqc_asym_verify_impl;

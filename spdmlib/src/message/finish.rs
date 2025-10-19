@@ -2,11 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
+use super::SpdmVersion;
 use crate::common;
+use crate::common::opaque::SpdmOpaqueStruct;
 use crate::common::spdm_codec::SpdmCodec;
 use crate::error::{SpdmStatus, SPDM_STATUS_BUFFER_FULL};
 use crate::protocol::{
     SpdmDigestStruct, SpdmRequestCapabilityFlags, SpdmResponseCapabilityFlags, SpdmSignatureStruct,
+    SPDM_MAX_SLOT_NUMBER,
 };
 use codec::{Codec, Reader, Writer};
 
@@ -36,6 +39,7 @@ pub struct SpdmFinishRequestPayload {
     pub req_slot_id: u8,
     pub signature: SpdmSignatureStruct,
     pub verify_data: SpdmDigestStruct,
+    pub opaque: SpdmOpaqueStruct, // Spdm 1.4
 }
 
 impl SpdmCodec for SpdmFinishRequestPayload {
@@ -53,6 +57,9 @@ impl SpdmCodec for SpdmFinishRequestPayload {
             .req_slot_id
             .encode(bytes)
             .map_err(|_| SPDM_STATUS_BUFFER_FULL)?; // param2
+        if context.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion14 {
+            cnt += self.opaque.spdm_encode(context, bytes)?;
+        }
         if self
             .finish_request_attributes
             .contains(SpdmFinishRequestAttributes::SIGNATURE_INCLUDED)
@@ -69,6 +76,13 @@ impl SpdmCodec for SpdmFinishRequestPayload {
     ) -> Option<SpdmFinishRequestPayload> {
         let finish_request_attributes = SpdmFinishRequestAttributes::read(r)?; // param1
         let req_slot_id = u8::read(r)?; // param2
+        if (req_slot_id >= SPDM_MAX_SLOT_NUMBER as u8) && (req_slot_id != 0xFF) {
+            return None;
+        }
+        let mut opaque = SpdmOpaqueStruct::default();
+        if context.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion14 {
+            opaque = SpdmOpaqueStruct::spdm_read(context, r)?;
+        }
         let mut signature = SpdmSignatureStruct::default();
         if finish_request_attributes.contains(SpdmFinishRequestAttributes::SIGNATURE_INCLUDED) {
             signature = SpdmSignatureStruct::spdm_read(context, r)?;
@@ -80,6 +94,7 @@ impl SpdmCodec for SpdmFinishRequestPayload {
             req_slot_id,
             signature,
             verify_data,
+            opaque,
         })
     }
 }
@@ -87,6 +102,7 @@ impl SpdmCodec for SpdmFinishRequestPayload {
 #[derive(Debug, Clone, Default)]
 pub struct SpdmFinishResponsePayload {
     pub verify_data: SpdmDigestStruct,
+    pub opaque: SpdmOpaqueStruct, // Spdm 1.4
 }
 
 impl SpdmCodec for SpdmFinishResponsePayload {
@@ -98,6 +114,9 @@ impl SpdmCodec for SpdmFinishResponsePayload {
         let mut cnt = 0usize;
         cnt += 0u8.encode(bytes).map_err(|_| SPDM_STATUS_BUFFER_FULL)?; // param1
         cnt += 0u8.encode(bytes).map_err(|_| SPDM_STATUS_BUFFER_FULL)?; // param2
+        if context.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion14 {
+            cnt += self.opaque.spdm_encode(context, bytes)?;
+        }
         let in_clear_text = context
             .negotiate_info
             .req_capabilities_sel
@@ -118,7 +137,10 @@ impl SpdmCodec for SpdmFinishResponsePayload {
     ) -> Option<SpdmFinishResponsePayload> {
         u8::read(r)?; // param1
         u8::read(r)?; // param2
-
+        let mut opaque = SpdmOpaqueStruct::default();
+        if context.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion14 {
+            opaque = SpdmOpaqueStruct::spdm_read(context, r)?;
+        }
         let in_clear_text = context
             .negotiate_info
             .req_capabilities_sel
@@ -134,7 +156,10 @@ impl SpdmCodec for SpdmFinishResponsePayload {
             SpdmDigestStruct::default()
         };
 
-        Some(SpdmFinishResponsePayload { verify_data })
+        Some(SpdmFinishResponsePayload {
+            verify_data,
+            opaque,
+        })
     }
 }
 
@@ -145,7 +170,7 @@ mod testlib;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{SpdmConfigInfo, SpdmContext, SpdmProvisionInfo};
+    use crate::common::{SpdmConfigInfo, SpdmContext, SpdmProvisionInfo, MAX_SPDM_OPAQUE_SIZE};
     use crate::protocol::*;
     use testlib::{create_spdm_context, DeviceIO, TransportEncap};
     extern crate alloc;
@@ -153,18 +178,22 @@ mod tests {
 
     #[test]
     fn test_case0_spdm_finish_request_payload() {
-        let u8_slice = &mut [0u8; 2 + SPDM_MAX_ASYM_KEY_SIZE + SPDM_MAX_HASH_SIZE];
+        let u8_slice = &mut [0u8; 2 + RSASSA_4096_SIG_SIZE + SHA512_DIGEST_SIZE];
         let mut writer = Writer::init(u8_slice);
         let value = SpdmFinishRequestPayload {
             finish_request_attributes: SpdmFinishRequestAttributes::SIGNATURE_INCLUDED,
-            req_slot_id: 100,
+            req_slot_id: 4,
             signature: SpdmSignatureStruct {
-                data_size: SPDM_MAX_ASYM_KEY_SIZE as u16,
-                data: [0xa5u8; SPDM_MAX_ASYM_KEY_SIZE],
+                data_size: RSASSA_4096_SIG_SIZE as u16,
+                data: [0xa5u8; SPDM_MAX_ASYM_SIG_SIZE],
             },
             verify_data: SpdmDigestStruct {
-                data_size: SPDM_MAX_HASH_SIZE as u16,
+                data_size: SHA512_DIGEST_SIZE as u16,
                 data: Box::new([0x5au8; SPDM_MAX_HASH_SIZE]),
+            },
+            opaque: SpdmOpaqueStruct {
+                data_size: MAX_SPDM_OPAQUE_SIZE as u16,
+                data: [100u8; MAX_SPDM_OPAQUE_SIZE],
             },
         };
 
@@ -175,22 +204,19 @@ mod tests {
 
         assert!(value.spdm_encode(&mut context, &mut writer).is_ok());
         let mut reader = Reader::init(u8_slice);
-        assert_eq!(
-            2 + SPDM_MAX_ASYM_KEY_SIZE + SPDM_MAX_HASH_SIZE,
-            reader.left()
-        );
+        assert_eq!(2 + RSASSA_4096_SIG_SIZE + SHA512_DIGEST_SIZE, reader.left());
         let spdm_finish_request_payload =
             SpdmFinishRequestPayload::spdm_read(&mut context, &mut reader).unwrap();
         assert_eq!(
             spdm_finish_request_payload.finish_request_attributes,
             SpdmFinishRequestAttributes::SIGNATURE_INCLUDED
         );
-        assert_eq!(spdm_finish_request_payload.req_slot_id, 100);
+        assert_eq!(spdm_finish_request_payload.req_slot_id, 4);
         assert_eq!(
             spdm_finish_request_payload.signature.data_size,
-            RSASSA_4096_KEY_SIZE as u16
+            RSASSA_4096_SIG_SIZE as u16
         );
-        for i in 0..RSASSA_4096_KEY_SIZE {
+        for i in 0..RSASSA_4096_SIG_SIZE {
             assert_eq!(spdm_finish_request_payload.signature.data[i], 0xa5u8);
         }
         assert_eq!(
@@ -203,18 +229,22 @@ mod tests {
     }
     #[test]
     fn test_case1_spdm_finish_request_payload() {
-        let u8_slice = &mut [0u8; 2 + SPDM_MAX_HASH_SIZE];
+        let u8_slice = &mut [0u8; 2 + SHA512_DIGEST_SIZE];
         let mut writer = Writer::init(u8_slice);
         let value = SpdmFinishRequestPayload {
             finish_request_attributes: SpdmFinishRequestAttributes::empty(),
-            req_slot_id: 100,
+            req_slot_id: 4,
             signature: SpdmSignatureStruct {
-                data_size: SPDM_MAX_ASYM_KEY_SIZE as u16,
-                data: [0xa5u8; SPDM_MAX_ASYM_KEY_SIZE],
+                data_size: RSASSA_4096_SIG_SIZE as u16,
+                data: [0xa5u8; SPDM_MAX_ASYM_SIG_SIZE],
             },
             verify_data: SpdmDigestStruct {
-                data_size: SPDM_MAX_HASH_SIZE as u16,
+                data_size: SHA512_DIGEST_SIZE as u16,
                 data: Box::new([0x5au8; SPDM_MAX_HASH_SIZE]),
+            },
+            opaque: SpdmOpaqueStruct {
+                data_size: MAX_SPDM_OPAQUE_SIZE as u16,
+                data: [100u8; MAX_SPDM_OPAQUE_SIZE],
             },
         };
 
@@ -225,27 +255,31 @@ mod tests {
 
         assert!(value.spdm_encode(&mut context, &mut writer).is_ok());
         let mut reader = Reader::init(u8_slice);
-        assert_eq!(2 + SPDM_MAX_HASH_SIZE, reader.left());
+        assert_eq!(2 + SHA512_DIGEST_SIZE, reader.left());
         let spdm_finish_request_payload =
             SpdmFinishRequestPayload::spdm_read(&mut context, &mut reader).unwrap();
         assert_eq!(
             spdm_finish_request_payload.finish_request_attributes,
             SpdmFinishRequestAttributes::empty()
         );
-        assert_eq!(spdm_finish_request_payload.req_slot_id, 100);
+        assert_eq!(spdm_finish_request_payload.req_slot_id, 4);
         assert_eq!(spdm_finish_request_payload.signature.data_size, 0);
-        for i in 0..RSASSA_4096_KEY_SIZE {
+        for i in 0..RSASSA_4096_SIG_SIZE {
             assert_eq!(spdm_finish_request_payload.signature.data[i], 0);
         }
     }
     #[test]
     fn test_case0_spdm_finish_response_payload() {
-        let u8_slice = &mut [0u8; 2 + SPDM_MAX_HASH_SIZE];
+        let u8_slice = &mut [0u8; 2 + SHA512_DIGEST_SIZE];
         let mut writer = Writer::init(u8_slice);
         let value = SpdmFinishResponsePayload {
             verify_data: SpdmDigestStruct {
-                data_size: SPDM_MAX_HASH_SIZE as u16,
+                data_size: SHA512_DIGEST_SIZE as u16,
                 data: Box::new([100u8; SPDM_MAX_HASH_SIZE]),
+            },
+            opaque: SpdmOpaqueStruct {
+                data_size: MAX_SPDM_OPAQUE_SIZE as u16,
+                data: [100u8; MAX_SPDM_OPAQUE_SIZE],
             },
         };
 
@@ -259,10 +293,10 @@ mod tests {
 
         assert!(value.spdm_encode(&mut context, &mut writer).is_ok());
         let mut reader = Reader::init(u8_slice);
-        assert_eq!(2 + SPDM_MAX_HASH_SIZE, reader.left());
+        assert_eq!(2 + SHA512_DIGEST_SIZE, reader.left());
         let spdm_read = SpdmFinishResponsePayload::spdm_read(&mut context, &mut reader).unwrap();
-        assert_eq!(spdm_read.verify_data.data_size, SPDM_MAX_HASH_SIZE as u16);
-        for i in 0..SPDM_MAX_HASH_SIZE {
+        assert_eq!(spdm_read.verify_data.data_size, SHA512_DIGEST_SIZE as u16);
+        for i in 0..SHA512_DIGEST_SIZE {
             assert_eq!(spdm_read.verify_data.data[i], 100u8);
         }
         assert_eq!(0, reader.left());
@@ -273,8 +307,12 @@ mod tests {
         let mut writer = Writer::init(u8_slice);
         let value = SpdmFinishResponsePayload {
             verify_data: SpdmDigestStruct {
-                data_size: SPDM_MAX_HASH_SIZE as u16,
+                data_size: SHA512_DIGEST_SIZE as u16,
                 data: Box::new([100u8; SPDM_MAX_HASH_SIZE]),
+            },
+            opaque: SpdmOpaqueStruct {
+                data_size: MAX_SPDM_OPAQUE_SIZE as u16,
+                data: [100u8; MAX_SPDM_OPAQUE_SIZE],
             },
         };
 
@@ -290,7 +328,7 @@ mod tests {
         assert_eq!(2, reader.left());
         let spdm_read = SpdmFinishResponsePayload::spdm_read(&mut context, &mut reader).unwrap();
         assert_eq!(spdm_read.verify_data.data_size, 0);
-        for i in 0..SPDM_MAX_HASH_SIZE {
+        for i in 0..SHA512_DIGEST_SIZE {
             assert_eq!(spdm_read.verify_data.data[i], 0);
         }
         assert_eq!(0, reader.left());

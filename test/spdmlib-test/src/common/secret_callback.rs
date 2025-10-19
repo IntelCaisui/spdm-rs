@@ -12,7 +12,9 @@ use spdmlib::crypto;
 use spdmlib::crypto::hash;
 use spdmlib::message::*;
 use spdmlib::protocol::*;
-use spdmlib::secret::{SpdmSecretAsymSign, SpdmSecretMeasurement, SpdmSecretPsk};
+use spdmlib::secret::{
+    SpdmSecretAsymSign, SpdmSecretMeasurement, SpdmSecretPqcAsymSign, SpdmSecretPsk,
+};
 
 pub static SECRET_MEASUREMENT_IMPL_INSTANCE: SpdmSecretMeasurement = SpdmSecretMeasurement {
     measurement_collection_cb: measurement_collection_impl,
@@ -28,6 +30,13 @@ pub static SECRET_ASYM_IMPL_INSTANCE: SpdmSecretAsymSign =
     SpdmSecretAsymSign { sign_cb: asym_sign };
 pub static FAKE_SECRET_ASYM_IMPL_INSTANCE: SpdmSecretAsymSign = SpdmSecretAsymSign {
     sign_cb: fake_asym_sign,
+};
+
+pub static SECRET_PQC_ASYM_IMPL_INSTANCE: SpdmSecretPqcAsymSign = SpdmSecretPqcAsymSign {
+    sign_cb: pqc_asym_sign,
+};
+pub static FAKE_SECRET_PQC_ASYM_IMPL_INSTANCE: SpdmSecretPqcAsymSign = SpdmSecretPqcAsymSign {
+    sign_cb: fake_pqc_asym_sign,
 };
 
 #[allow(clippy::field_reassign_with_default)]
@@ -222,16 +231,16 @@ fn handshake_secret_hkdf_expand_impl(
     psk_hint: &SpdmPskHintStruct,
     info: &[u8],
 ) -> Option<SpdmHkdfOutputKeyingMaterial> {
-    let mut psk_key: SpdmDheFinalKeyStruct = SpdmDheFinalKeyStruct {
+    let mut psk_key: SpdmSharedSecretFinalKeyStruct = SpdmSharedSecretFinalKeyStruct {
         data_size: b"TestPskData\0".len() as u16,
-        data: Box::new([0; SPDM_MAX_DHE_KEY_SIZE]),
+        data: Box::new([0; SPDM_MAX_SHARED_SECRET_SIZE]),
     };
     psk_key.data[0..(psk_key.data_size as usize)].copy_from_slice(b"TestPskData\0");
 
     let hs_sec = crypto::hkdf::hkdf_extract(
         base_hash_algo,
         &SALT_0[0..base_hash_algo.get_size() as usize],
-        &SpdmHkdfInputKeyingMaterial::SpdmDheFinalKey(&psk_key),
+        &SpdmHkdfInputKeyingMaterial::SpdmSharedSecretFinalKey(&psk_key),
     )?;
     crypto::hkdf::hkdf_expand(base_hash_algo, &hs_sec, info, base_hash_algo.get_size())
 }
@@ -242,9 +251,9 @@ fn master_secret_hkdf_expand_impl(
     psk_hint: &SpdmPskHintStruct,
     info: &[u8],
 ) -> Option<SpdmHkdfOutputKeyingMaterial> {
-    let mut psk_key: SpdmDheFinalKeyStruct = SpdmDheFinalKeyStruct {
+    let mut psk_key: SpdmSharedSecretFinalKeyStruct = SpdmSharedSecretFinalKeyStruct {
         data_size: b"TestPskData\0".len() as u16,
-        data: Box::new([0; SPDM_MAX_DHE_KEY_SIZE]),
+        data: Box::new([0; SPDM_MAX_SHARED_SECRET_SIZE]),
     };
     psk_key.data[0..(psk_key.data_size as usize)].copy_from_slice(b"TestPskData\0");
 
@@ -261,7 +270,7 @@ fn master_secret_hkdf_expand_impl(
     let hs_sec = crypto::hkdf::hkdf_extract(
         base_hash_algo,
         &SALT_0[0..base_hash_algo.get_size() as usize],
-        &SpdmHkdfInputKeyingMaterial::SpdmDheFinalKey(&psk_key),
+        &SpdmHkdfInputKeyingMaterial::SpdmSharedSecretFinalKey(&psk_key),
     )?;
     let salt_1 =
         crypto::hkdf::hkdf_expand(base_hash_algo, &hs_sec, bin_str0, base_hash_algo.get_size())?;
@@ -313,13 +322,21 @@ fn sign_ecdsa_asym_algo(
     let signature = key_pair.sign(&rng, data).unwrap();
     let signature = signature.as_ref();
 
-    let mut full_signature: [u8; SPDM_MAX_ASYM_KEY_SIZE] = [0u8; SPDM_MAX_ASYM_KEY_SIZE];
+    let mut full_signature: [u8; SPDM_MAX_ASYM_SIG_SIZE] = [0u8; SPDM_MAX_ASYM_SIG_SIZE];
     full_signature[..signature.len()].copy_from_slice(signature);
 
     Some(SpdmSignatureStruct {
         data_size: signature.len() as u16,
         data: full_signature,
     })
+}
+
+fn pqc_asym_sign(
+    _base_hash_algo: SpdmBaseHashAlgo,
+    _pqc_asym_algo: SpdmPqcAsymAlgo,
+    _data: &[u8],
+) -> Option<SpdmSignatureStruct> {
+    unimplemented!()
 }
 
 fn fake_asym_sign(
@@ -330,16 +347,40 @@ fn fake_asym_sign(
     match (base_hash_algo, base_asym_algo) {
         (SpdmBaseHashAlgo::TPM_ALG_SHA_256, SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P256) => {
             Some(SpdmSignatureStruct {
-                data_size: 64,
-                data: [0x5a; SPDM_MAX_ASYM_KEY_SIZE],
+                data_size: ECDSA_ECC_NIST_P256_SIG_SIZE as u16,
+                data: [0x5a; SPDM_MAX_ASYM_SIG_SIZE],
             })
         }
         (SpdmBaseHashAlgo::TPM_ALG_SHA_384, SpdmBaseAsymAlgo::TPM_ALG_ECDSA_ECC_NIST_P384) => {
             Some(SpdmSignatureStruct {
-                data_size: 96,
-                data: [0x5a; SPDM_MAX_ASYM_KEY_SIZE],
+                data_size: ECDSA_ECC_NIST_P384_SIG_SIZE as u16,
+                data: [0x5a; SPDM_MAX_ASYM_SIG_SIZE],
             })
         }
+        _ => {
+            panic!();
+        }
+    }
+}
+
+fn fake_pqc_asym_sign(
+    base_hash_algo: SpdmBaseHashAlgo,
+    pqc_asym_algo: SpdmPqcAsymAlgo,
+    data: &[u8],
+) -> Option<SpdmSignatureStruct> {
+    match pqc_asym_algo {
+        SpdmPqcAsymAlgo::ALG_MLDSA_44 => Some(SpdmSignatureStruct {
+            data_size: MLDSA_44_SIG_SIZE as u16,
+            data: [0x5a; SPDM_MAX_ASYM_SIG_SIZE],
+        }),
+        SpdmPqcAsymAlgo::ALG_MLDSA_65 => Some(SpdmSignatureStruct {
+            data_size: MLDSA_65_SIG_SIZE as u16,
+            data: [0x5a; SPDM_MAX_ASYM_SIG_SIZE],
+        }),
+        SpdmPqcAsymAlgo::ALG_MLDSA_87 => Some(SpdmSignatureStruct {
+            data_size: MLDSA_87_SIG_SIZE as u16,
+            data: [0x5a; SPDM_MAX_ASYM_SIG_SIZE],
+        }),
         _ => {
             panic!();
         }

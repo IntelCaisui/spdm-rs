@@ -10,12 +10,11 @@ use fuzzlib::{
 use spdmlib::protocol::*;
 use spin::Mutex;
 extern crate alloc;
-use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::ops::DerefMut;
 
 async fn fuzz_send_receive_spdm_key_update(data: Arc<Vec<u8>>) {
     spdmlib::secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    spdmlib::secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     spdmlib::crypto::hkdf::register(FAKE_HKDF.clone());
     spdmlib::crypto::aead::register(FAKE_AEAD.clone());
 
@@ -44,14 +43,15 @@ async fn fuzz_send_receive_spdm_key_update(data: Arc<Vec<u8>>) {
         requester.common.session[0].set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
 
-        let mut dhe_secret = SpdmDheFinalKeyStruct::default();
-        dhe_secret.data_size = SpdmDheAlgo::SECP_384_R1.get_size();
+        let mut shared_secret = SpdmSharedSecretFinalKeyStruct::default();
+        shared_secret.data_size = SpdmDheAlgo::SECP_384_R1.get_key_size();
         requester.common.session[0]
-            .set_dhe_secret(SpdmVersion::SpdmVersion12, dhe_secret)
+            .set_shared_secret(SpdmVersion::SpdmVersion12, shared_secret)
             .unwrap();
         let digest = [0xFF; SPDM_MAX_HASH_SIZE];
         let digest_struct = SpdmDigestStruct::from(digest.as_ref());

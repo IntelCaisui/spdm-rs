@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
 use crate::common::device_io::{FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::SECRET_ASYM_IMPL_INSTANCE;
+use crate::common::secret_callback::*;
 use crate::common::transport::PciDoeTransportEncap;
-use crate::common::util::{create_info, TestSpdmMessage};
+use crate::common::util::create_info;
+#[cfg(not(feature = "chunk-cap"))]
+use crate::common::util::TestSpdmMessage;
 use codec::{Codec, Reader, Writer};
 use spdmlib::common::*;
 use spdmlib::config::MAX_SPDM_MSG_SIZE;
@@ -26,6 +28,7 @@ fn test_case0_handle_spdm_capability() {
             shared_buffer,
         ))));
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         let mut context = responder::ResponderContext::new(
             socket_io_transport,
             pcidoe_transport_encap,
@@ -52,6 +55,7 @@ fn test_case0_handle_spdm_capability() {
             flags: SpdmRequestCapabilityFlags::CERT_CAP | SpdmRequestCapabilityFlags::CHAL_CAP,
             data_transfer_size: 0,
             max_spdm_msg_size: 0,
+            ex_flags: SpdmRequestCapabilityExFlags::default(),
         };
         assert!(value.spdm_encode(&mut context.common, &mut writer).is_ok());
         let bytes = &mut [0u8; 1024];
@@ -60,7 +64,7 @@ fn test_case0_handle_spdm_capability() {
 
         let mut response_buffer = [0u8; MAX_SPDM_MSG_SIZE];
         let mut writer = Writer::init(&mut response_buffer);
-        context.handle_spdm_capability(bytes, &mut writer);
+        let _result = context.handle_spdm_capability(bytes, &mut writer);
 
         let rsp_capabilities = SpdmResponseCapabilityFlags::CERT_CAP
             | SpdmResponseCapabilityFlags::CHAL_CAP
@@ -119,9 +123,10 @@ fn test_case0_handle_spdm_capability() {
     executor::block_on(future);
 }
 
+#[cfg(not(feature = "chunk-cap"))]
 pub fn consturct_capability_positive() -> (TestSpdmMessage, TestSpdmMessage) {
     use crate::protocol;
-    let (config_info, provision_info) = create_info();
+    let (config_info, _provision_info) = create_info();
     let get_capabilities_msg = TestSpdmMessage {
         message: protocol::Message::GET_CAPABILITIES(protocol::capability::GET_CAPABILITIES {
             SPDMVersion: 0x12,

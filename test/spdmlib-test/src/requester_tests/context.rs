@@ -8,7 +8,7 @@ use crate::common::transport::PciDoeTransportEncap;
 use crate::common::util::create_info;
 use crate::watchdog_impl_sample::init_watchdog;
 use codec::Writer;
-use spdmlib::common::session::{SpdmSession, SpdmSessionState};
+use spdmlib::common::session::SpdmSession;
 use spdmlib::common::SpdmCodec;
 use spdmlib::message::*;
 use spdmlib::protocol::*;
@@ -32,6 +32,7 @@ fn test_case0_start_session() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         secret::measurement::register(SECRET_MEASUREMENT_IMPL_INSTANCE.clone());
         secret::psk::register(SECRET_PSK_IMPL_INSTANCE.clone());
 
@@ -119,6 +120,7 @@ fn test_case0_get_next_half_session() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         secret::measurement::register(SECRET_MEASUREMENT_IMPL_INSTANCE.clone());
         secret::psk::register(SECRET_PSK_IMPL_INSTANCE.clone());
 
@@ -236,6 +238,7 @@ fn test_case0_receive_secured_message() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
         let mut responder = responder::ResponderContext::new(
             device_io_responder,
@@ -252,15 +255,16 @@ fn test_case0_receive_secured_message() {
         responder.common.session[0].set_crypto_param(
             protocol::SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             protocol::SpdmDheAlgo::SECP_384_R1,
+            protocol::SpdmKemAlgo::empty(),
             protocol::SpdmAeadAlgo::AES_256_GCM,
             protocol::SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
         assert!(responder.common.session[0]
-            .set_dhe_secret(
+            .set_shared_secret(
                 SpdmVersion::SpdmVersion12,
-                SpdmDheFinalKeyStruct {
+                SpdmSharedSecretFinalKeyStruct {
                     data_size: 5,
-                    data: Box::new([100u8; SPDM_MAX_DHE_KEY_SIZE])
+                    data: Box::new([100u8; SPDM_MAX_SHARED_SECRET_SIZE])
                 }
             )
             .is_ok());
@@ -307,15 +311,16 @@ fn test_case0_receive_secured_message() {
         requester.common.session[0].set_crypto_param(
             protocol::SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             protocol::SpdmDheAlgo::SECP_384_R1,
+            protocol::SpdmKemAlgo::empty(),
             protocol::SpdmAeadAlgo::AES_256_GCM,
             protocol::SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
         assert!(requester.common.session[0]
-            .set_dhe_secret(
+            .set_shared_secret(
                 SpdmVersion::SpdmVersion12,
-                SpdmDheFinalKeyStruct {
+                SpdmSharedSecretFinalKeyStruct {
                     data_size: 5,
-                    data: Box::new([100u8; SPDM_MAX_DHE_KEY_SIZE])
+                    data: Box::new([100u8; SPDM_MAX_SHARED_SECRET_SIZE])
                 }
             )
             .is_ok());

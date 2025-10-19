@@ -23,7 +23,7 @@ use simple_logger::SimpleLogger;
 
 #[cfg(not(feature = "is_sync"))]
 use spdm_emu::async_runtime::block_on;
-use spdm_emu::crypto_callback::SECRET_ASYM_IMPL_INSTANCE;
+use spdm_emu::crypto_callback::{SECRET_ASYM_IMPL_INSTANCE, SECRET_PQC_ASYM_IMPL_INSTANCE};
 use spdm_emu::secret_impl_sample::SECRET_PSK_IMPL_INSTANCE;
 use spdm_emu::EMU_STACK_SIZE;
 use spdmlib::common;
@@ -43,10 +43,9 @@ use spdm_emu::spdm_emu::*;
 use std::net::TcpStream;
 use tdisp::pci_tdisp::FunctionId;
 use tdisp::pci_tdisp::InterfaceId;
-use tdisp::pci_tdisp::InterfaceInfo;
 use tdisp::pci_tdisp::LockInterfaceFlag;
+use tdisp::pci_tdisp::TdiReportStructure;
 use tdisp::pci_tdisp::TdiState;
-use tdisp::pci_tdisp::TdispMmioRange;
 use tdisp::pci_tdisp::MAX_DEVICE_REPORT_BUFFER;
 use tdisp::pci_tdisp::START_INTERFACE_NONCE_LEN;
 use tdisp::pci_tdisp_requester::pci_tdisp_req_get_device_interface_report;
@@ -106,7 +105,8 @@ async fn test_spdm(
         | SpdmRequestCapabilityFlags::PSK_CAP
         | SpdmRequestCapabilityFlags::ENCAP_CAP
         | SpdmRequestCapabilityFlags::HBEAT_CAP
-        | SpdmRequestCapabilityFlags::KEY_UPD_CAP;
+        | SpdmRequestCapabilityFlags::KEY_UPD_CAP
+        | SpdmRequestCapabilityFlags::LARGE_RESP_CAP;
     // | SpdmRequestCapabilityFlags::HANDSHAKE_IN_THE_CLEAR_CAP
     // | SpdmRequestCapabilityFlags::PUB_KEY_ID_CAP
     let req_capabilities = if cfg!(feature = "mut-auth") {
@@ -126,7 +126,8 @@ async fn test_spdm(
             Some(SpdmVersion::SpdmVersion10),
             Some(SpdmVersion::SpdmVersion11),
             Some(SpdmVersion::SpdmVersion12),
-            None,
+            Some(SpdmVersion::SpdmVersion13),
+            Some(SpdmVersion::SpdmVersion14),
         ],
         req_capabilities,
         req_ct_exponent: 0,
@@ -189,7 +190,7 @@ async fn test_spdm(
         inter_len,
         leaf_len
     );
-    peer_root_cert_data.data_size = (ca_len) as u16;
+    peer_root_cert_data.data_size = (ca_len) as u32;
     peer_root_cert_data.data[0..ca_len].copy_from_slice(ca_cert.as_ref());
 
     let mut peer_root_cert_data_list = gen_array_clone(None, MAX_ROOT_CERT_SUPPORT);
@@ -197,11 +198,12 @@ async fn test_spdm(
 
     let provision_info = if cfg!(feature = "mut-auth") {
         spdmlib::secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        spdmlib::secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         let mut my_cert_chain_data = SpdmCertChainData {
             ..Default::default()
         };
 
-        my_cert_chain_data.data_size = (ca_len + inter_len + leaf_len) as u16;
+        my_cert_chain_data.data_size = (ca_len + inter_len + leaf_len) as u32;
         my_cert_chain_data.data[0..ca_len].copy_from_slice(ca_cert.as_ref());
         my_cert_chain_data.data[ca_len..(ca_len + inter_len)].copy_from_slice(inter_cert.as_ref());
         my_cert_chain_data.data[(ca_len + inter_len)..(ca_len + inter_len + leaf_len)]
@@ -343,6 +345,7 @@ async fn test_spdm(
 
         #[cfg(feature = "test_update_keys")]
         {
+            let spdm_version_sel = context.common.negotiate_info.spdm_version_sel;
             context.common.reset_buffer_via_request_code(
                 SpdmRequestResponseCode::SpdmRequestKeyUpdate,
                 Some(session_id),
@@ -375,7 +378,7 @@ async fn test_spdm(
 
             // Create new keys after sending KeyUpdate request.
             let _ = session
-                .create_data_secret_update(SpdmVersion::SpdmVersion12, true, true)
+                .create_data_secret_update(spdm_version_sel, true, true)
                 .ok();
 
             // Update all keys to new keys.
@@ -409,6 +412,7 @@ async fn test_spdm(
 
         #[cfg(feature = "test_verify_keys")]
         {
+            let spdm_version_sel = context.common.negotiate_info.spdm_version_sel;
             context.common.reset_buffer_via_request_code(
                 SpdmRequestResponseCode::SpdmRequestKeyUpdate,
                 Some(session_id),
@@ -441,7 +445,7 @@ async fn test_spdm(
 
             // Create new keys after sending KeyUpdate request.
             let _ = session
-                .create_data_secret_update(SpdmVersion::SpdmVersion12, true, true)
+                .create_data_secret_update(spdm_version_sel, true, true)
                 .ok();
 
             // Update all keys to new keys.
@@ -498,7 +502,7 @@ async fn test_spdm(
 
             // No keys update in VerifyNewKeys step.
             let _ = session
-                .create_data_secret_update(SpdmVersion::SpdmVersion12, false, false)
+                .create_data_secret_update(spdm_version_sel, false, false)
                 .ok();
 
             // Receive verify response message.
@@ -607,7 +611,8 @@ async fn test_idekm_tdisp(
         | SpdmRequestCapabilityFlags::PSK_CAP
         | SpdmRequestCapabilityFlags::ENCAP_CAP
         | SpdmRequestCapabilityFlags::HBEAT_CAP
-        | SpdmRequestCapabilityFlags::KEY_UPD_CAP;
+        | SpdmRequestCapabilityFlags::KEY_UPD_CAP
+        | SpdmRequestCapabilityFlags::LARGE_RESP_CAP;
     // | SpdmRequestCapabilityFlags::HANDSHAKE_IN_THE_CLEAR_CAP
     // | SpdmRequestCapabilityFlags::PUB_KEY_ID_CAP
     let req_capabilities = if cfg!(feature = "mut-auth") {
@@ -627,7 +632,8 @@ async fn test_idekm_tdisp(
             Some(SpdmVersion::SpdmVersion10),
             Some(SpdmVersion::SpdmVersion11),
             Some(SpdmVersion::SpdmVersion12),
-            None,
+            Some(SpdmVersion::SpdmVersion13),
+            Some(SpdmVersion::SpdmVersion14),
         ],
         req_capabilities,
         req_ct_exponent: 0,
@@ -690,7 +696,7 @@ async fn test_idekm_tdisp(
         inter_len,
         leaf_len
     );
-    peer_root_cert_data.data_size = (ca_len) as u16;
+    peer_root_cert_data.data_size = (ca_len) as u32;
     peer_root_cert_data.data[0..ca_len].copy_from_slice(ca_cert.as_ref());
 
     let mut peer_root_cert_data_list = gen_array_clone(None, MAX_ROOT_CERT_SUPPORT);
@@ -698,11 +704,12 @@ async fn test_idekm_tdisp(
 
     let provision_info = if cfg!(feature = "mut-auth") {
         spdmlib::secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        spdmlib::secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         let mut my_cert_chain_data = SpdmCertChainData {
             ..Default::default()
         };
 
-        my_cert_chain_data.data_size = (ca_len + inter_len + leaf_len) as u16;
+        my_cert_chain_data.data_size = (ca_len + inter_len + leaf_len) as u32;
         my_cert_chain_data.data[0..ca_len].copy_from_slice(ca_cert.as_ref());
         my_cert_chain_data.data[ca_len..(ca_len + inter_len)].copy_from_slice(inter_cert.as_ref());
         my_cert_chain_data.data[(ca_len + inter_len)..(ca_len + inter_len + leaf_len)]
@@ -1289,7 +1296,7 @@ async fn test_idekm_tdisp(
     // tdisp test
     let interface_id = InterfaceId {
         function_id: FunctionId {
-            requester_id: 0x1234,
+            requester_id: 0xbeef,
             requester_segment: 0,
             requester_segment_valid: false,
         },
@@ -1592,99 +1599,4 @@ fn main() {
 
     #[cfg(feature = "test_heap_size")]
     log::info!("max heap usage: {}", dhat::HeapStats::get().max_bytes);
-}
-
-pub const MMIO_RANGE_COUNT: usize = 4;
-pub const DEVICE_SPECIFIC_INFO: &[u8; 9] = b"tdisp emu";
-pub const DEVICE_SPECIFIC_INFO_LEN: usize = DEVICE_SPECIFIC_INFO.len();
-
-#[derive(Debug, Copy, Clone)]
-pub struct TdiReportStructure {
-    pub interface_info: InterfaceInfo,
-    pub msi_x_message_control: u16,
-    pub lnr_control: u16,
-    pub tph_control: u32,
-    pub mmio_range_count: u32,
-    pub mmio_range: [TdispMmioRange; MMIO_RANGE_COUNT],
-    pub device_specific_info_len: u32,
-    pub device_specific_info: [u8; DEVICE_SPECIFIC_INFO_LEN],
-}
-
-impl Default for TdiReportStructure {
-    fn default() -> Self {
-        Self {
-            interface_info: InterfaceInfo::default(),
-            msi_x_message_control: 0u16,
-            lnr_control: 0u16,
-            tph_control: 0u32,
-            mmio_range_count: 0u32,
-            mmio_range: [TdispMmioRange::default(); MMIO_RANGE_COUNT],
-            device_specific_info_len: 0u32,
-            device_specific_info: [0u8; DEVICE_SPECIFIC_INFO_LEN],
-        }
-    }
-}
-
-impl Codec for TdiReportStructure {
-    fn encode(&self, bytes: &mut codec::Writer) -> Result<usize, codec::EncodeErr> {
-        let mut cnt = 0;
-
-        cnt += self.interface_info.encode(bytes)?;
-        cnt += 0u16.encode(bytes)?;
-        cnt += self.msi_x_message_control.encode(bytes)?;
-        cnt += self.lnr_control.encode(bytes)?;
-        cnt += self.tph_control.encode(bytes)?;
-        cnt += self.mmio_range_count.encode(bytes)?;
-        for mr in self.mmio_range.iter().take(self.mmio_range_count as usize) {
-            cnt += mr.encode(bytes)?;
-        }
-        cnt += self.device_specific_info_len.encode(bytes)?;
-        for dsi in self
-            .device_specific_info
-            .iter()
-            .take(self.device_specific_info_len as usize)
-        {
-            cnt += dsi.encode(bytes)?;
-        }
-
-        Ok(cnt)
-    }
-
-    fn read(r: &mut codec::Reader) -> Option<Self> {
-        let interface_info = InterfaceInfo::read(r)?;
-        u16::read(r)?;
-        let msi_x_message_control = u16::read(r)?;
-        let lnr_control = u16::read(r)?;
-        let tph_control = u32::read(r)?;
-        let mmio_range_count = u32::read(r)?;
-        if mmio_range_count as usize > MMIO_RANGE_COUNT {
-            return None;
-        }
-        let mut mmio_range = [TdispMmioRange::default(); MMIO_RANGE_COUNT];
-        for mr in mmio_range.iter_mut().take(mmio_range_count as usize) {
-            *mr = TdispMmioRange::read(r)?;
-        }
-        let device_specific_info_len = u32::read(r)?;
-        if device_specific_info_len as usize > DEVICE_SPECIFIC_INFO_LEN {
-            return None;
-        }
-        let mut device_specific_info = [0u8; DEVICE_SPECIFIC_INFO_LEN];
-        for dsi in device_specific_info
-            .iter_mut()
-            .take(device_specific_info_len as usize)
-        {
-            *dsi = u8::read(r)?;
-        }
-
-        Some(Self {
-            interface_info,
-            msi_x_message_control,
-            lnr_control,
-            tph_control,
-            mmio_range_count,
-            mmio_range,
-            device_specific_info_len,
-            device_specific_info,
-        })
-    }
 }

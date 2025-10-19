@@ -8,11 +8,11 @@ use crate::common::transport::PciDoeTransportEncap;
 use crate::common::util::create_info;
 use spdmlib::message::{
     RegistryOrStandardsBodyID, VendorDefinedReqPayloadStruct, VendorIDStruct,
-    MAX_SPDM_VENDOR_DEFINED_VENDOR_ID_LEN,
+    MAX_SPDM_VENDOR_DEFINED_PAYLOAD_SIZE, MAX_SPDM_VENDOR_DEFINED_VENDOR_ID_LEN,
 };
 use spdmlib::requester::RequesterContext;
 use spdmlib::responder::ResponderContext;
-use spdmlib::{config, secret};
+use spdmlib::secret;
 use spin::Mutex;
 extern crate alloc;
 use alloc::sync::Arc;
@@ -30,6 +30,7 @@ fn test_case0_send_spdm_vendor_defined_request() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
         let responder = ResponderContext::new(
             device_io_responder,
@@ -60,7 +61,7 @@ fn test_case0_send_spdm_vendor_defined_request() {
         };
         let req_payload_struct: VendorDefinedReqPayloadStruct = VendorDefinedReqPayloadStruct {
             req_length: 0,
-            vendor_defined_req_payload: [0u8; config::MAX_SPDM_MSG_SIZE - 7 - 2],
+            vendor_defined_req_payload: [0u8; MAX_SPDM_VENDOR_DEFINED_PAYLOAD_SIZE],
         };
 
         let status = requester

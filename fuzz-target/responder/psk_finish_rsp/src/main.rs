@@ -9,12 +9,11 @@ use fuzzlib::{
 use spdmlib::protocol::*;
 use spin::Mutex;
 extern crate alloc;
-use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::ops::DerefMut;
 
 async fn fuzz_handle_spdm_psk_finish(data: Arc<Vec<u8>>) {
     spdmlib::secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    spdmlib::secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     spdmlib::secret::psk::register(SECRET_PSK_IMPL_INSTANCE.clone());
     spdmlib::crypto::hmac::register(FAKE_HMAC.clone());
     spdmlib::crypto::hkdf::register(FAKE_HKDF.clone());
@@ -47,6 +46,7 @@ async fn fuzz_handle_spdm_psk_finish(data: Arc<Vec<u8>>) {
         context.common.session[0].set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
@@ -61,7 +61,8 @@ async fn fuzz_handle_spdm_psk_finish(data: Arc<Vec<u8>>) {
 
         let mut response_buffer = [0u8; spdmlib::config::MAX_SPDM_MSG_SIZE];
         let mut writer = codec::Writer::init(&mut response_buffer);
-        let (status, send_buffer) = context.handle_spdm_psk_finish(4294836221, &data, &mut writer);
+        let (_status, _send_buffer) =
+            context.handle_spdm_psk_finish(4294836221, &data, &mut writer);
         //assert!(status.is_ok());
     }
     // TCD:
@@ -92,6 +93,7 @@ async fn fuzz_handle_spdm_psk_finish(data: Arc<Vec<u8>>) {
         context.common.session[0].set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
@@ -142,6 +144,7 @@ async fn fuzz_handle_spdm_psk_finish(data: Arc<Vec<u8>>) {
         context.common.session[0].set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
@@ -155,7 +158,8 @@ async fn fuzz_handle_spdm_psk_finish(data: Arc<Vec<u8>>) {
         }
         let mut response_buffer = [0u8; spdmlib::config::MAX_SPDM_MSG_SIZE];
         let mut writer = codec::Writer::init(&mut response_buffer);
-        let (status, send_buffer) = context.handle_spdm_psk_finish(4294836221, &data, &mut writer);
+        let (_status, _send_buffer) =
+            context.handle_spdm_psk_finish(4294836221, &data, &mut writer);
         //assert!(status.is_ok());
     }
 }

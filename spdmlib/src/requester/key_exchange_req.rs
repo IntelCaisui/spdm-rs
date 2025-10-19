@@ -2,8 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
-extern crate alloc;
-use alloc::boxed::Box;
 use core::ops::DerefMut;
 
 use crate::common::session::SpdmSession;
@@ -20,6 +18,7 @@ use crate::protocol::*;
 use crate::requester::*;
 
 use crate::crypto;
+use crate::crypto::SpdmReqExchangeContext;
 
 use crate::error::SpdmResult;
 use crate::message::*;
@@ -33,7 +32,11 @@ impl RequesterContext {
     ) -> SpdmResult<u32> {
         info!("send spdm key exchange\n");
 
-        if slot_id >= SPDM_MAX_SLOT_NUMBER as u8 {
+        if slot_id >= SPDM_MAX_SLOT_NUMBER as u8
+            && (slot_id != SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE
+                || self.common.provision_info.peer_pub_key.is_none())
+        {
+            error!("slot_id is out of range!\n");
             return Err(SPDM_STATUS_INVALID_PARAMETER);
         }
 
@@ -86,7 +89,7 @@ impl RequesterContext {
         buf: &mut [u8],
         slot_id: u8,
         measurement_summary_hash_type: SpdmMeasurementSummaryHashType,
-    ) -> SpdmResult<(Box<dyn crypto::SpdmDheKeyExchange + Send>, usize)> {
+    ) -> SpdmResult<(SpdmReqExchangeContext, usize)> {
         let mut writer = Writer::init(buf);
 
         let session_policy = self.common.config_info.session_policy;
@@ -107,8 +110,23 @@ impl RequesterContext {
         crypto::rand::get_random(&mut random)?;
 
         let (exchange, key_exchange_context) =
-            crypto::dhe::generate_key_pair(self.common.negotiate_info.dhe_sel)
-                .ok_or(SPDM_STATUS_CRYPTO_ERROR)?;
+            if self.common.negotiate_info.kem_sel != SpdmKemAlgo::empty() {
+                let (kem_exchange, kem_key_exchange_context) =
+                    crypto::kem_decap::generate_key_pair(self.common.negotiate_info.kem_sel)
+                        .ok_or(SPDM_STATUS_CRYPTO_ERROR)?;
+                (
+                    SpdmReqExchangeStruct::from_kem(kem_exchange),
+                    SpdmReqExchangeContext::SpdmReqExchangeContextKem(kem_key_exchange_context),
+                )
+            } else {
+                let (dhe_exchange, dhe_key_exchange_context) =
+                    crypto::dhe::generate_key_pair(self.common.negotiate_info.dhe_sel)
+                        .ok_or(SPDM_STATUS_CRYPTO_ERROR)?;
+                (
+                    SpdmReqExchangeStruct::from_dhe(dhe_exchange),
+                    SpdmReqExchangeContext::SpdmReqExchangeContextDhe(dhe_key_exchange_context),
+                )
+            };
 
         debug!("!!! exchange data : {:02x?}\n", exchange);
 
@@ -157,7 +175,7 @@ impl RequesterContext {
         send_buffer: &[u8],
         receive_buffer: &[u8],
         measurement_summary_hash_type: SpdmMeasurementSummaryHashType,
-        key_exchange_context: Box<dyn crypto::SpdmDheKeyExchange>,
+        key_exchange_context: SpdmReqExchangeContext,
         target_session_id: &mut Option<u32>,
     ) -> SpdmResult {
         self.common.runtime_info.need_measurement_summary_hash = (measurement_summary_hash_type
@@ -197,15 +215,41 @@ impl RequesterContext {
                                 &key_exchange_rsp.exchange
                             );
 
-                            let final_key = key_exchange_context
-                                .compute_final_key(&key_exchange_rsp.exchange)
-                                .ok_or(SPDM_STATUS_CRYPTO_ERROR)?;
+                            let final_key: SpdmSharedSecretFinalKeyStruct = if self
+                                .common
+                                .negotiate_info
+                                .kem_sel
+                                != SpdmKemAlgo::empty()
+                            {
+                                let kem_exchange = key_exchange_rsp.exchange.to_kem();
+                                let kem_key_exchange_context = match key_exchange_context {
+                                    SpdmReqExchangeContext::SpdmReqExchangeContextDhe(_) => {
+                                        return Err(SPDM_STATUS_CRYPTO_ERROR);
+                                    }
+                                    SpdmReqExchangeContext::SpdmReqExchangeContextKem(ctx) => ctx,
+                                };
+                                kem_key_exchange_context
+                                    .decap_key(&kem_exchange)
+                                    .ok_or(SPDM_STATUS_CRYPTO_ERROR)?
+                            } else {
+                                let dhe_exchange = key_exchange_rsp.exchange.to_dhe();
+                                let dhe_key_exchange_context = match key_exchange_context {
+                                    SpdmReqExchangeContext::SpdmReqExchangeContextKem(_) => {
+                                        return Err(SPDM_STATUS_CRYPTO_ERROR);
+                                    }
+                                    SpdmReqExchangeContext::SpdmReqExchangeContextDhe(ctx) => ctx,
+                                };
+                                dhe_key_exchange_context
+                                    .compute_final_key(&dhe_exchange)
+                                    .ok_or(SPDM_STATUS_CRYPTO_ERROR)?
+                            };
 
                             debug!("!!! final_key : {:02x?}\n", final_key.as_ref());
 
                             // create session structure
                             let base_hash_algo = self.common.negotiate_info.base_hash_sel;
                             let dhe_algo = self.common.negotiate_info.dhe_sel;
+                            let kem_algo = self.common.negotiate_info.kem_sel;
                             let aead_algo = self.common.negotiate_info.aead_sel;
                             let key_schedule_algo = self.common.negotiate_info.key_schedule_sel;
                             let sequence_number_count = {
@@ -236,8 +280,20 @@ impl RequesterContext {
                             *target_session_id = Some(session_id);
                             let spdm_version_sel = self.common.negotiate_info.spdm_version_sel;
                             let message_a = self.common.runtime_info.message_a.clone();
-                            let cert_chain_hash =
-                                self.common.get_certchain_hash_peer(false, slot_id as usize);
+                            let cert_chain_hash = if slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE {
+                                let peer_pub_key = self
+                                    .common
+                                    .provision_info
+                                    .peer_pub_key
+                                    .as_ref()
+                                    .ok_or(SPDM_STATUS_INVALID_PARAMETER)?;
+                                crypto::hash::hash_all(
+                                    self.common.negotiate_info.base_hash_sel,
+                                    peer_pub_key.data[..peer_pub_key.data_size as usize].as_ref(),
+                                )
+                            } else {
+                                self.common.get_certchain_hash_peer(false, slot_id as usize)
+                            };
                             if cert_chain_hash.is_none() {
                                 return Err(SPDM_STATUS_INVALID_MSG_FIELD);
                             }
@@ -258,6 +314,30 @@ impl RequesterContext {
                                     return Err(SPDM_STATUS_INVALID_MSG_FIELD);
                                 }
                                 if key_exchange_rsp.mut_auth_req
+                                    == SpdmKeyExchangeMutAuthAttributes::MUT_AUTH_REQ
+                                {
+                                    if self
+                                        .common
+                                        .negotiate_info
+                                        .req_capabilities_sel
+                                        .contains(SpdmRequestCapabilityFlags::CERT_CAP)
+                                        && key_exchange_rsp.req_slot_id
+                                            >= SPDM_MAX_SLOT_NUMBER as u8
+                                    {
+                                        return Err(SPDM_STATUS_INVALID_MSG_FIELD);
+                                    }
+                                    if self
+                                        .common
+                                        .negotiate_info
+                                        .req_capabilities_sel
+                                        .contains(SpdmRequestCapabilityFlags::PUB_KEY_ID_CAP)
+                                        && key_exchange_rsp.req_slot_id
+                                            != SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE_RSP
+                                    {
+                                        return Err(SPDM_STATUS_INVALID_MSG_FIELD);
+                                    }
+                                }
+                                if key_exchange_rsp.mut_auth_req
                                     == SpdmKeyExchangeMutAuthAttributes::MUT_AUTH_REQ_WITH_ENCAP_REQUEST
                                     && key_exchange_rsp.req_slot_id >= SPDM_MAX_SLOT_NUMBER as u8
                                 {
@@ -276,29 +356,33 @@ impl RequesterContext {
                             session.setup(session_id)?;
 
                             session.set_use_psk(false);
+                            if key_exchange_rsp.mut_auth_req
+                                == SpdmKeyExchangeMutAuthAttributes::MUT_AUTH_REQ
+                            {
+                                session.set_slot_id(slot_id);
+                            }
                             session.set_mut_auth_requested(key_exchange_rsp.mut_auth_req);
 
                             session.set_crypto_param(
                                 base_hash_algo,
                                 dhe_algo,
+                                kem_algo,
                                 aead_algo,
                                 key_schedule_algo,
                             );
                             session.set_transport_param(sequence_number_count, max_random_count);
-                            session.set_dhe_secret(spdm_version_sel, final_key)?;
+                            session.set_shared_secret(spdm_version_sel, final_key)?;
                             session.runtime_info.message_a = message_a;
                             session.runtime_info.rsp_cert_hash = cert_chain_hash;
                             session.runtime_info.req_cert_hash = None;
 
                             // create transcript
-                            let base_asym_size =
-                                self.common.negotiate_info.base_asym_sel.get_size() as usize;
-                            let base_hash_size =
-                                self.common.negotiate_info.base_hash_sel.get_size() as usize;
+                            let signature_size = self.common.get_asym_sig_size() as usize;
+                            let base_hash_size = self.common.get_hash_size() as usize;
                             let temp_receive_used = if in_clear_text {
-                                receive_used - base_asym_size
+                                receive_used - signature_size
                             } else {
-                                receive_used - base_asym_size - base_hash_size
+                                receive_used - signature_size - base_hash_size
                             };
 
                             self.common.append_message_k(session_id, send_buffer)?;
@@ -347,6 +431,7 @@ impl RequesterContext {
                                 .common
                                 .get_session_via_id(session_id)
                                 .ok_or(SPDM_STATUS_INVALID_STATE_LOCAL)?;
+                            session.set_th1(th1.clone());
                             session.generate_handshake_secret(spdm_version_sel, &th1)?;
 
                             if !in_clear_text {
@@ -458,20 +543,29 @@ impl RequesterContext {
 
         debug!("message_hash - {:02x?}", transcript_hash.as_ref());
 
-        if self.common.peer_info.peer_cert_chain[slot_id as usize].is_none() {
-            error!("peer_cert_chain is not populated!\n");
-            return Err(SPDM_STATUS_INVALID_PARAMETER);
-        }
+        let cert_chain_data = if slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE {
+            let peer_pub_key = self
+                .common
+                .provision_info
+                .peer_pub_key
+                .as_ref()
+                .ok_or(SPDM_STATUS_INVALID_PARAMETER)?;
+            &peer_pub_key.data[..peer_pub_key.data_size as usize]
+        } else {
+            if self.common.peer_info.peer_cert_chain[slot_id as usize].is_none() {
+                error!("peer_cert_chain is not populated!\n");
+                return Err(SPDM_STATUS_INVALID_PARAMETER);
+            }
 
-        let cert_chain_data = &self.common.peer_info.peer_cert_chain[slot_id as usize]
-            .as_ref()
-            .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
-            .data[(4usize + self.common.negotiate_info.base_hash_sel.get_size() as usize)
-            ..(self.common.peer_info.peer_cert_chain[slot_id as usize]
+            &self.common.peer_info.peer_cert_chain[slot_id as usize]
                 .as_ref()
                 .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
-                .data_size as usize)];
-
+                .data[(4usize + self.common.get_hash_size() as usize)
+                ..(self.common.peer_info.peer_cert_chain[slot_id as usize]
+                    .as_ref()
+                    .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
+                    .data_size as usize)]
+        };
         let mut message_sign = ManagedBuffer12Sign::default();
         if self.common.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion12 {
             message_sign.reset_message();
@@ -492,9 +586,13 @@ impl RequesterContext {
             return Err(SPDM_STATUS_INVALID_STATE_LOCAL);
         }
 
-        crypto::asym_verify::verify(
+        let verify_use_pub_key = slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE;
+
+        crypto::spdm_asym_verify(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.pqc_asym_sel,
+            verify_use_pub_key,
             cert_chain_data,
             message_sign.as_ref(),
             signature,
@@ -515,25 +613,36 @@ impl RequesterContext {
         // we just print message hash for debug purpose
         debug!("message_hash - {:02x?}", message_hash.as_ref());
 
-        if self.common.peer_info.peer_cert_chain[slot_id as usize].is_none() {
-            error!("peer_cert_chain is not populated!\n");
-            return Err(SPDM_STATUS_INVALID_PARAMETER);
-        }
-
-        let cert_chain_data = &self.common.peer_info.peer_cert_chain[slot_id as usize]
-            .as_ref()
-            .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
-            .data[(4usize + self.common.negotiate_info.base_hash_sel.get_size() as usize)
-            ..(self.common.peer_info.peer_cert_chain[slot_id as usize]
+        let cert_chain_data = if slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE {
+            let peer_pub_key = self
+                .common
+                .provision_info
+                .peer_pub_key
+                .as_ref()
+                .ok_or(SPDM_STATUS_INVALID_PARAMETER)?;
+            &peer_pub_key.data[..peer_pub_key.data_size as usize]
+        } else {
+            if self.common.peer_info.peer_cert_chain[slot_id as usize].is_none() {
+                error!("peer_cert_chain is not populated!\n");
+                return Err(SPDM_STATUS_INVALID_PARAMETER);
+            };
+            &self.common.peer_info.peer_cert_chain[slot_id as usize]
                 .as_ref()
                 .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
-                .data_size as usize)];
+                .data[(4usize
+                + self.common.negotiate_info.base_hash_sel.get_size() as usize)
+                ..(self.common.peer_info.peer_cert_chain[slot_id as usize]
+                    .as_ref()
+                    .ok_or(SPDM_STATUS_INVALID_PARAMETER)?
+                    .data_size as usize)]
+        };
 
         let mut message = self.common.calc_req_transcript_data(
             false,
             slot_id,
             false,
             &session.runtime_info.message_k,
+            None,
             None,
         )?;
 
@@ -553,9 +662,17 @@ impl RequesterContext {
                 .ok_or(SPDM_STATUS_BUFFER_FULL)?;
         }
 
-        crypto::asym_verify::verify(
+        let verify_use_pub_key = if slot_id == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE {
+            true
+        } else {
+            false
+        };
+
+        crypto::spdm_asym_verify(
             self.common.negotiate_info.base_hash_sel,
             self.common.negotiate_info.base_asym_sel,
+            self.common.negotiate_info.pqc_asym_sel,
+            verify_use_pub_key,
             cert_chain_data,
             message.as_ref(),
             signature,

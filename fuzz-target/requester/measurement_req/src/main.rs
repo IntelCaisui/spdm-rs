@@ -7,19 +7,16 @@ use fuzzlib::{
     spdmlib::message::SpdmMeasurementOperation,
     *,
 };
-use spdmlib::common::SpdmConnectionState;
 use spdmlib::message::*;
 use spdmlib::protocol::*;
 
 use spin::Mutex;
 extern crate alloc;
-use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::borrow::BorrowMut;
-use core::ops::DerefMut;
 
 async fn fuzz_send_receive_spdm_measurement(fuzzdata: Arc<Vec<u8>>) {
     spdmlib::crypto::asym_verify::register(FAKE_ASYM_VERIFY.clone());
+    spdmlib::crypto::pqc_asym_verify::register(FAKE_PQC_ASYM_VERIFY.clone());
     // TCD:
     // - id: 0
     // - title: 'Fuzz SPDM handle measurement response'
@@ -317,6 +314,7 @@ async fn fuzz_send_receive_spdm_measurement(fuzzdata: Arc<Vec<u8>>) {
         requester.common.session[0].set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
@@ -324,10 +322,10 @@ async fn fuzz_send_receive_spdm_measurement(fuzzdata: Arc<Vec<u8>>) {
 
         #[cfg(feature = "hashed-transcript-data")]
         {
-            let mut dhe_secret = SpdmDheFinalKeyStruct::default();
-            dhe_secret.data_size = SpdmDheAlgo::SECP_384_R1.get_size();
+            let mut shared_secret = SpdmSharedSecretFinalKeyStruct::default();
+            shared_secret.data_size = SpdmDheAlgo::SECP_384_R1.get_key_size();
             requester.common.session[0]
-                .set_dhe_secret(SpdmVersion::SpdmVersion12, dhe_secret)
+                .set_shared_secret(SpdmVersion::SpdmVersion12, shared_secret)
                 .unwrap();
             requester.common.session[0].runtime_info.digest_context_th =
                 spdmlib::crypto::hash::hash_ctx_init(SpdmBaseHashAlgo::TPM_ALG_SHA_384);

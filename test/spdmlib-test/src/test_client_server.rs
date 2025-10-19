@@ -3,14 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
 use crate::common::device_io::{FakeSpdmDeviceIo, FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::SECRET_ASYM_IMPL_INSTANCE;
+use crate::common::secret_callback::*;
 use crate::common::transport::PciDoeTransportEncap;
-use crate::common::util::{get_rsp_cert_chain_buff, req_create_info, rsp_create_info};
+#[cfg(feature = "mut-auth")]
+use crate::common::util::get_rsp_cert_chain_buff;
+use crate::common::util::{req_create_info, rsp_create_info};
 use crate::watchdog_impl_sample::init_watchdog;
-use spdmlib::protocol::{
-    SpdmMeasurementSummaryHashType, SpdmReqAsymAlgo, SpdmRequestCapabilityFlags,
-    SpdmResponseCapabilityFlags,
-};
+use spdmlib::protocol::SpdmMeasurementSummaryHashType;
+#[cfg(feature = "mut-auth")]
+use spdmlib::protocol::{SpdmReqAsymAlgo, SpdmRequestCapabilityFlags, SpdmResponseCapabilityFlags};
 use spdmlib::requester;
 use spdmlib::responder;
 use spin::Mutex;
@@ -21,6 +22,7 @@ use alloc::sync::Arc;
 fn intergration_client_server() {
     let future = async {
         spdmlib::secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        spdmlib::secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         init_watchdog();
 
         let shared_buffer = SharedBuffer::new();
@@ -30,6 +32,14 @@ fn intergration_client_server() {
         let transport_encap_responder = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         let (config_info, provision_info) = rsp_create_info();
+        #[cfg(not(feature = "mut-auth"))]
+        let responder_context = responder::ResponderContext::new(
+            device_io_responder,
+            transport_encap_responder,
+            config_info,
+            provision_info,
+        );
+        #[cfg(feature = "mut-auth")]
         let mut responder_context = responder::ResponderContext::new(
             device_io_responder,
             transport_encap_responder,

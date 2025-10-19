@@ -26,6 +26,7 @@ fn test_case0_handle_spdm_heartbeat() {
             shared_buffer,
         ))));
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         let mut context = responder::ResponderContext::new(
             socket_io_transport,
             pcidoe_transport_encap,
@@ -41,15 +42,16 @@ fn test_case0_handle_spdm_heartbeat() {
         context.common.session[0].set_crypto_param(
             SpdmBaseHashAlgo::TPM_ALG_SHA_384,
             SpdmDheAlgo::SECP_384_R1,
+            SpdmKemAlgo::empty(),
             SpdmAeadAlgo::AES_256_GCM,
             SpdmKeyScheduleAlgo::SPDM_KEY_SCHEDULE,
         );
         assert!(context.common.session[0]
-            .set_dhe_secret(
+            .set_shared_secret(
                 SpdmVersion::SpdmVersion12,
-                SpdmDheFinalKeyStruct {
+                SpdmSharedSecretFinalKeyStruct {
                     data_size: 5,
-                    data: Box::new([100u8; SPDM_MAX_DHE_KEY_SIZE])
+                    data: Box::new([100u8; SPDM_MAX_SHARED_SECRET_SIZE])
                 }
             )
             .is_ok());
@@ -82,7 +84,7 @@ fn test_case0_handle_spdm_heartbeat() {
         assert!(value.encode(&mut writer).is_ok());
         let mut response_buffer = [0u8; MAX_SPDM_MSG_SIZE];
         let mut writer = Writer::init(&mut response_buffer);
-        let (status, send_buffer) = context.handle_spdm_heartbeat(session_id, bytes, &mut writer);
+        let (_status, _send_buffer) = context.handle_spdm_heartbeat(session_id, bytes, &mut writer);
     };
     executor::block_on(future);
 }

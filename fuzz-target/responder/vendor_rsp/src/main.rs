@@ -5,19 +5,18 @@
 use fuzzlib::spdmlib::error::SpdmResult;
 use fuzzlib::spdmlib::message::{
     register_vendor_defined_struct, VendorDefinedReqPayloadStruct, VendorDefinedRspPayloadStruct,
-    VendorDefinedStruct, VendorIDStruct,
+    VendorDefinedStruct, VendorIDStruct, MAX_SPDM_VENDOR_DEFINED_PAYLOAD_SIZE,
 };
 use fuzzlib::*;
 use spdmlib::common::SpdmConnectionState;
 use spdmlib::protocol::*;
 use spin::Mutex;
 extern crate alloc;
-use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::ops::DerefMut;
 
 async fn fuzz_handle_spdm_vendor_defined_request(data: Arc<Vec<u8>>) {
     spdmlib::secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    spdmlib::secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
     let (config_info, provision_info) = rsp_create_info();
     let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
@@ -36,7 +35,7 @@ async fn fuzz_handle_spdm_vendor_defined_request(data: Arc<Vec<u8>>) {
 
     context.common.provision_info.my_cert_chain = [
         Some(SpdmCertChainBuffer {
-            data_size: 512u16,
+            data_size: 512u32,
             data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
         }),
         None,
@@ -64,7 +63,7 @@ async fn fuzz_handle_spdm_vendor_defined_request(data: Arc<Vec<u8>>) {
      -> SpdmResult<VendorDefinedRspPayloadStruct> {
         let mut vendor_defined_res_payload_struct = VendorDefinedRspPayloadStruct {
             rsp_length: 0,
-            vendor_defined_rsp_payload: [0; config::MAX_SPDM_MSG_SIZE - 7 - 2],
+            vendor_defined_rsp_payload: [0; MAX_SPDM_VENDOR_DEFINED_PAYLOAD_SIZE],
         };
         vendor_defined_res_payload_struct.rsp_length = 8;
         vendor_defined_res_payload_struct.vendor_defined_rsp_payload[0..8]

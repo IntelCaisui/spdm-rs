@@ -4,7 +4,7 @@
 
 use spdmlib::crypto::SpdmCertOperation;
 use spdmlib::crypto::SpdmCryptoRandom;
-use spdmlib::crypto::{SpdmAead, SpdmAsymVerify, SpdmHkdf, SpdmHmac};
+use spdmlib::crypto::{SpdmAead, SpdmAsymVerify, SpdmHkdf, SpdmHmac, SpdmPqcAsymVerify};
 use spdmlib::error::{SpdmResult, SPDM_STATUS_VERIF_FAIL};
 use spdmlib::protocol::*;
 
@@ -24,6 +24,10 @@ pub static FAKE_RAND: SpdmCryptoRandom = SpdmCryptoRandom {
 
 pub static FAKE_ASYM_VERIFY: SpdmAsymVerify = SpdmAsymVerify {
     verify_cb: fake_asym_verify,
+};
+
+pub static FAKE_PQC_ASYM_VERIFY: SpdmPqcAsymVerify = SpdmPqcAsymVerify {
+    verify_cb: fake_pqc_asym_verify,
 };
 
 pub static FAKE_HKDF: SpdmHkdf = SpdmHkdf {
@@ -109,6 +113,17 @@ fn get_random(data: &mut [u8]) -> SpdmResult<usize> {
 fn fake_asym_verify(
     _base_hash_algo: SpdmBaseHashAlgo,
     _base_asym_algo: SpdmBaseAsymAlgo,
+    _raw_pub_key_used: bool,
+    _public_cert_der: &[u8],
+    _data: &[u8],
+    _signature: &SpdmSignatureStruct,
+) -> SpdmResult {
+    Ok(())
+}
+
+fn fake_pqc_asym_verify(
+    _base_hash_algo: SpdmBaseHashAlgo,
+    _pqc_asym_algo: SpdmPqcAsymAlgo,
     _public_cert_der: &[u8],
     _data: &[u8],
     _signature: &SpdmSignatureStruct,
@@ -165,7 +180,7 @@ fn fake_hkdf_expand(
 }
 
 fn fake_get_cert_from_cert_chain(cert_chain: &[u8], _index: isize) -> SpdmResult<(usize, usize)> {
-    return Ok((0, cert_chain.len()));
+    Ok((0, cert_chain.len()))
 }
 
 fn fake_verify_cert_chain(_cert_chain: &[u8]) -> SpdmResult {
@@ -176,12 +191,15 @@ fn fake_verify_cert_chain(_cert_chain: &[u8]) -> SpdmResult {
 // Make sure this is the first test case running by `cargo test`
 fn test_0_crypto_init() {
     use super::secret_callback::{
-        FAKE_SECRET_ASYM_IMPL_INSTANCE, SECRET_MEASUREMENT_IMPL_INSTANCE,
+        FAKE_SECRET_ASYM_IMPL_INSTANCE, FAKE_SECRET_PQC_ASYM_IMPL_INSTANCE,
+        SECRET_MEASUREMENT_IMPL_INSTANCE,
     };
     spdmlib::crypto::aead::register(FAKE_AEAD.clone());
     spdmlib::crypto::asym_verify::register(FAKE_ASYM_VERIFY.clone());
+    spdmlib::crypto::pqc_asym_verify::register(FAKE_PQC_ASYM_VERIFY.clone());
     spdmlib::crypto::aead::register(FAKE_AEAD.clone());
     spdmlib::crypto::rand::register(FAKE_RAND.clone());
     spdmlib::secret::asym_sign::register(FAKE_SECRET_ASYM_IMPL_INSTANCE.clone());
+    spdmlib::secret::pqc_asym_sign::register(FAKE_SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     spdmlib::secret::measurement::register(SECRET_MEASUREMENT_IMPL_INSTANCE.clone());
 }

@@ -113,7 +113,7 @@ impl RequesterContext {
                 req_session_id: half_session_id,
                 psk_hint: psk_hint.clone(),
                 psk_context: SpdmPskContextStruct {
-                    data_size: self.common.negotiate_info.base_hash_sel.get_size(),
+                    data_size: self.common.get_hash_size(),
                     data: psk_context,
                 },
                 opaque,
@@ -155,6 +155,7 @@ impl RequesterContext {
                             // create session structure
                             let base_hash_algo = self.common.negotiate_info.base_hash_sel;
                             let dhe_algo = self.common.negotiate_info.dhe_sel;
+                            let kem_algo = self.common.negotiate_info.kem_sel;
                             let aead_algo = self.common.negotiate_info.aead_sel;
                             let key_schedule_algo = self.common.negotiate_info.key_schedule_sel;
                             let sequence_number_count = {
@@ -193,6 +194,7 @@ impl RequesterContext {
                             session.set_crypto_param(
                                 base_hash_algo,
                                 dhe_algo,
+                                kem_algo,
                                 aead_algo,
                                 key_schedule_algo,
                             );
@@ -204,8 +206,7 @@ impl RequesterContext {
                             session.runtime_info.req_cert_hash = None;
 
                             // create transcript
-                            let base_hash_size =
-                                self.common.negotiate_info.base_hash_sel.get_size() as usize;
+                            let base_hash_size = self.common.get_hash_size() as usize;
                             let temp_receive_used = receive_used - base_hash_size;
 
                             self.common.append_message_k(session_id, send_buffer)?;
@@ -232,6 +233,7 @@ impl RequesterContext {
                                 .common
                                 .get_session_via_id(session_id)
                                 .ok_or(SPDM_STATUS_INVALID_STATE_LOCAL)?;
+                            session.set_th1(th1.clone());
                             session.generate_handshake_secret(spdm_version_sel, &th1)?;
 
                             let session = self
@@ -316,6 +318,7 @@ impl RequesterContext {
                                     .common
                                     .get_session_via_id(session_id)
                                     .ok_or(SPDM_STATUS_INVALID_STATE_LOCAL)?;
+                                session.set_th2(th2.clone());
                                 session.generate_data_secret(spdm_version_sel, &th2)?;
                                 session.set_session_state(
                                     crate::common::session::SpdmSessionState::SpdmSessionEstablished,

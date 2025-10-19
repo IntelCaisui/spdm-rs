@@ -9,9 +9,9 @@ use alloc::boxed::Box;
 
 use crate::protocol::{
     SpdmAeadAlgo, SpdmAeadIvStruct, SpdmAeadKeyStruct, SpdmBaseAsymAlgo, SpdmBaseHashAlgo,
-    SpdmDheAlgo, SpdmDheExchangeStruct, SpdmDheFinalKeyStruct, SpdmDigestStruct,
-    SpdmHkdfInputKeyingMaterial, SpdmHkdfOutputKeyingMaterial, SpdmHkdfPseudoRandomKey,
-    SpdmSignatureStruct,
+    SpdmDheAlgo, SpdmDheExchangeStruct, SpdmDigestStruct, SpdmHkdfInputKeyingMaterial,
+    SpdmHkdfOutputKeyingMaterial, SpdmHkdfPseudoRandomKey, SpdmKemAlgo, SpdmKemCipherTextStruct,
+    SpdmKemEncapKeyStruct, SpdmPqcAsymAlgo, SpdmSharedSecretFinalKeyStruct, SpdmSignatureStruct,
 };
 
 #[cfg(not(feature = "hashed-transcript-data"))]
@@ -72,9 +72,22 @@ pub struct SpdmAead {
 
 #[derive(Clone)]
 pub struct SpdmAsymVerify {
+    #[allow(clippy::type_complexity)]
     pub verify_cb: fn(
         base_hash_algo: SpdmBaseHashAlgo,
         base_asym_algo: SpdmBaseAsymAlgo,
+        raw_pub_key_used: bool,
+        public_cert_der: &[u8],
+        data: &[u8],
+        signature: &SpdmSignatureStruct,
+    ) -> SpdmResult,
+}
+
+#[derive(Clone)]
+pub struct SpdmPqcAsymVerify {
+    pub verify_cb: fn(
+        base_hash_algo: SpdmBaseHashAlgo,
+        pqc_asym_algo: SpdmPqcAsymAlgo,
         public_cert_der: &[u8],
         data: &[u8],
         signature: &SpdmSignatureStruct,
@@ -118,7 +131,42 @@ pub trait SpdmDheKeyExchange {
     fn compute_final_key(
         self: Box<Self>,
         peer_pub_key: &SpdmDheExchangeStruct,
-    ) -> Option<SpdmDheFinalKeyStruct>;
+    ) -> Option<SpdmSharedSecretFinalKeyStruct>;
+}
+
+type KemGenerateKeyPairCb = fn(
+    kem_algo: SpdmKemAlgo,
+) -> Option<(
+    SpdmKemEncapKeyStruct,
+    Box<dyn SpdmKemEncapKeyExchange + Send>,
+)>;
+
+#[derive(Clone)]
+pub struct SpdmKemDecap {
+    pub generate_key_pair_cb: KemGenerateKeyPairCb,
+}
+
+type NewKeyCb = fn(
+    kem_algo: SpdmKemAlgo,
+    kem_encap_key: &SpdmKemEncapKeyStruct,
+) -> Option<Box<dyn SpdmKemCipherTextExchange + Send>>;
+
+#[derive(Clone)]
+pub struct SpdmKemEncap {
+    pub new_key_cb: NewKeyCb,
+}
+
+pub trait SpdmKemEncapKeyExchange {
+    fn decap_key(
+        self: Box<Self>,
+        kem_cipher_text: &SpdmKemCipherTextStruct,
+    ) -> Option<SpdmSharedSecretFinalKeyStruct>;
+}
+
+pub trait SpdmKemCipherTextExchange {
+    fn encap_key(
+        self: Box<Self>,
+    ) -> Option<(SpdmKemCipherTextStruct, SpdmSharedSecretFinalKeyStruct)>;
 }
 
 #[derive(Clone)]

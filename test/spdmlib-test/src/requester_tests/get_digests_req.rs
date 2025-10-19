@@ -2,19 +2,23 @@
 //
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
-use crate::common::device_io::{FakeSpdmDeviceIo, FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::*;
-use crate::common::transport::PciDoeTransportEncap;
-use crate::common::util::create_info;
-use spdmlib::common::SpdmConnectionState;
-use spdmlib::error::SPDM_STATUS_ERROR_PEER;
-use spdmlib::message::{SpdmMeasurementAttributes, SpdmMeasurementOperation};
-use spdmlib::protocol::*;
-use spdmlib::requester::RequesterContext;
-use spdmlib::{config, responder, secret};
-use spin::Mutex;
+#[cfg(feature = "hashed-transcript-data")]
 extern crate alloc;
-use alloc::sync::Arc;
+#[cfg(feature = "hashed-transcript-data")]
+use {
+    crate::common::device_io::{FakeSpdmDeviceIo, FakeSpdmDeviceIoReceve, SharedBuffer},
+    crate::common::secret_callback::*,
+    crate::common::transport::PciDoeTransportEncap,
+    crate::common::util::create_info,
+    alloc::sync::Arc,
+    spdmlib::common::SpdmConnectionState,
+    spdmlib::error::SPDM_STATUS_ERROR_PEER,
+    spdmlib::message::{SpdmMeasurementAttributes, SpdmMeasurementOperation},
+    spdmlib::protocol::*,
+    spdmlib::requester::RequesterContext,
+    spdmlib::{config, responder, secret},
+    spin::Mutex,
+};
 
 #[test]
 #[cfg(feature = "hashed-transcript-data")]
@@ -30,6 +34,7 @@ fn test_case0_send_receive_spdm_digest() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
 
         let mut responder = responder::ResponderContext::new(
             device_io_responder,
@@ -39,7 +44,7 @@ fn test_case0_send_receive_spdm_digest() {
         );
         responder.common.provision_info.my_cert_chain = [
             Some(SpdmCertChainBuffer {
-                data_size: 512u16,
+                data_size: 512u32,
                 data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
             }),
             None,
@@ -108,6 +113,7 @@ fn test_case0_send_receive_spdm_digest() {
 #[cfg(feature = "hashed-transcript-data")]
 fn issue_other_request_before_vca_negotiated() {
     secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+    secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
     // issue GET_DIGESTS
     executor::add_task(async {
         let (rsp_config_info, rsp_provision_info) = create_info();
@@ -125,7 +131,7 @@ fn issue_other_request_before_vca_negotiated() {
         );
         responder.common.provision_info.my_cert_chain = [
             Some(SpdmCertChainBuffer {
-                data_size: 512u16,
+                data_size: 512u32,
                 data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
             }),
             None,
@@ -176,7 +182,7 @@ fn issue_other_request_before_vca_negotiated() {
         );
         responder.common.provision_info.my_cert_chain = [
             Some(SpdmCertChainBuffer {
-                data_size: 512u16,
+                data_size: 512u32,
                 data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
             }),
             None,
@@ -227,7 +233,7 @@ fn issue_other_request_before_vca_negotiated() {
         );
         responder.common.provision_info.my_cert_chain = [
             Some(SpdmCertChainBuffer {
-                data_size: 512u16,
+                data_size: 512u32,
                 data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
             }),
             None,
@@ -284,7 +290,7 @@ fn issue_other_request_before_vca_negotiated() {
         );
         responder.common.provision_info.my_cert_chain = [
             Some(SpdmCertChainBuffer {
-                data_size: 512u16,
+                data_size: 512u32,
                 data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
             }),
             None,

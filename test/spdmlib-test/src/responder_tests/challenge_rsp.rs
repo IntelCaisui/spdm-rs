@@ -6,7 +6,7 @@
 
 use crate::common::crypto_callback::FAKE_RAND;
 use crate::common::device_io::{self, FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::SECRET_ASYM_IMPL_INSTANCE;
+use crate::common::secret_callback::*;
 use crate::common::transport::PciDoeTransportEncap;
 use crate::common::util::{create_info, ResponderRunner, TestCase, TestSpdmMessage};
 use codec::{Codec, Reader, Writer};
@@ -35,6 +35,7 @@ fn test_case0_handle_spdm_challenge() {
         ))));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         secret::measurement::register(SECRET_MEASUREMENT_IMPL_INSTANCE.clone());
         crypto::rand::register(FAKE_RAND.clone());
 
@@ -46,7 +47,7 @@ fn test_case0_handle_spdm_challenge() {
         );
         context.common.provision_info.my_cert_chain = [
             Some(SpdmCertChainBuffer {
-                data_size: (4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE) as u16,
+                data_size: (4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE) as u32,
                 data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
             }),
             None,
@@ -123,7 +124,7 @@ fn test_case0_handle_spdm_challenge() {
                 + SPDM_MAX_HASH_SIZE
                 + 2
                 + MAX_SPDM_OPAQUE_SIZE
-                + SPDM_MAX_ASYM_KEY_SIZE];
+                + SPDM_MAX_ASYM_SIG_SIZE];
             for (i, data) in data.iter().enumerate() {
                 u8_slice[i] = *data;
             }
@@ -140,7 +141,7 @@ fn test_case0_handle_spdm_challenge() {
             let mut reader = Reader::init(spdm_struct_slice);
             let spdm_challenge_request_payload =
                 SpdmChallengeRequestPayload::spdm_read(&mut context.common, &mut reader).unwrap();
-            assert_eq!(spdm_challenge_request_payload.slot_id, 100);
+            assert_eq!(spdm_challenge_request_payload.slot_id, 4);
             assert_eq!(
                 spdm_challenge_request_payload.measurement_summary_hash_type,
                 SpdmMeasurementSummaryHashType::SpdmMeasurementSummaryHashTypeAll
@@ -276,7 +277,11 @@ fn test_case1_handle_spdm_challenge() {
         secure: 0,
     };
 
-    let sig_len = config_info.base_asym_algo.get_size() as usize;
+    let sig_len = if config_info.pqc_asym_algo != SpdmPqcAsymAlgo::empty() {
+        config_info.pqc_asym_algo.get_sig_size() as usize
+    } else {
+        config_info.base_asym_algo.get_sig_size() as usize
+    };
     let challenge_auth_msg = TestSpdmMessage {
         message: protocol::Message::CHALLENGE_AUTH(protocol::challenge::CHALLENGE_AUTH {
             SPDMVersion: 0x12,

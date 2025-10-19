@@ -83,8 +83,27 @@ impl RequesterContext {
                         .req_capabilities_sel
                         .contains(SpdmRequestCapabilityFlags::MUT_AUTH_CAP)
                 {
-                    self.session_based_mutual_authenticate(session_id).await?;
-                    Some(self.common.runtime_info.get_local_used_cert_chain_slot_id())
+                    let session = self
+                        .common
+                        .get_session_via_id(session_id)
+                        .ok_or(SPDM_STATUS_INVALID_MSG_FIELD)?;
+                    let mut_auth_requested = session.get_mut_auth_requested();
+                    if mut_auth_requested == SpdmKeyExchangeMutAuthAttributes::MUT_AUTH_REQ {
+                        if self.common.runtime_info.get_local_used_cert_chain_slot_id()
+                            < SPDM_MAX_SLOT_NUMBER as u8
+                        {
+                            Some(self.common.runtime_info.get_local_used_cert_chain_slot_id())
+                        } else if self.common.runtime_info.get_local_used_cert_chain_slot_id()
+                            == SPDM_PUB_KEY_SLOT_ID_KEY_EXCHANGE_RSP
+                        {
+                            Some(SPDM_PUB_KEY_SLOT_ID_FINISH)
+                        } else {
+                            None
+                        }
+                    } else {
+                        self.session_based_mutual_authenticate(session_id).await?;
+                        Some(self.common.runtime_info.get_local_used_cert_chain_slot_id())
+                    }
                 } else {
                     None
                 }
@@ -442,6 +461,18 @@ impl RequesterContext {
         receive_buffer: &[u8],
         session_id: Option<u32>,
     ) -> SpdmResult {
+        let offset_of_response_of_large_request_in_chunk_send_ack =
+            if self.common.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion14 {
+                SPDM_VERSION_1_4_OFFSET_OF_RESPONSE_OF_LARGE_REQUEST_IN_CHUNK_SEND_ACK
+            } else {
+                SPDM_VERSION_1_2_OFFSET_OF_RESPONSE_OF_LARGE_REQUEST_IN_CHUNK_SEND_ACK
+            };
+        let max_chunk_seq_num =
+            if self.common.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion14 {
+                u32::MAX
+            } else {
+                u16::MAX as u32
+            };
         let mut reader = Reader::init(receive_buffer);
 
         match SpdmMessageHeader::read(&mut reader) {
@@ -475,8 +506,10 @@ impl RequesterContext {
                                     }
                                     // Check the large message size. Since the large message could be chunked because it
                                     // is in last chunk ack message, so it could be smaller than min data transfer size.
-                                    if large_message_size < (config::SPDM_MIN_DATA_TRANSFER_SIZE -
-                                        SPDM_VERSION_1_2_OFFSET_OF_RESPONSE_OF_LARGE_REQUEST_IN_CHUNK_SEND_ACK) as u32
+                                    if large_message_size
+                                        < (config::SPDM_MIN_DATA_TRANSFER_SIZE
+                                            - offset_of_response_of_large_request_in_chunk_send_ack)
+                                            as u32
                                     {
                                         error!("!!! receive_large_response: large message size too small !!!\n");
                                         return Err(SPDM_STATUS_INVALID_MSG_FIELD);
@@ -488,7 +521,7 @@ impl RequesterContext {
                                         - SPDM_VERSION_1_2_OFFSET_OF_SPDM_CHUNK_IN_CHUNK_RESPONSE)
                                         * (u16::MAX as usize - 1)
                                         + data_transfer_size
-                                        - SPDM_VERSION_1_2_OFFSET_OF_RESPONSE_OF_LARGE_REQUEST_IN_CHUNK_SEND_ACK;
+                                        - offset_of_response_of_large_request_in_chunk_send_ack;
                                     if large_message_size as usize > max_large_response_size {
                                         error!("!!! receive_large_response: request too large to receive in chunks !!!\n");
                                         return Err(SPDM_STATUS_INVALID_MSG_FIELD);
@@ -517,7 +550,7 @@ impl RequesterContext {
                                     );
                                     return Err(SPDM_STATUS_INVALID_MSG_FIELD);
                                 };
-                                if self.common.chunk_context.chunk_seq_num < u16::MAX {
+                                if self.common.chunk_context.chunk_seq_num < max_chunk_seq_num {
                                     self.common.chunk_context.chunk_seq_num += 1;
                                 } else {
                                     error!(
@@ -658,6 +691,12 @@ impl RequesterContext {
         receive_buffer: &[u8],
         early_error_detected: &mut bool,
     ) -> SpdmResult {
+        let max_chunk_seq_num =
+            if self.common.negotiate_info.spdm_version_sel >= SpdmVersion::SpdmVersion14 {
+                u32::MAX
+            } else {
+                u16::MAX as u32
+            };
         let mut reader = Reader::init(receive_buffer);
         match SpdmMessageHeader::read(&mut reader) {
             Some(message_header) => {
@@ -719,7 +758,9 @@ impl RequesterContext {
                                 error!("!!! chunk send ack : chunk seq num mismatch !!!\n");
                                 return Err(SPDM_STATUS_INVALID_MSG_FIELD);
                             } else {
-                                assert!(self.common.chunk_context.chunk_seq_num < u16::MAX);
+                                assert!(
+                                    self.common.chunk_context.chunk_seq_num < max_chunk_seq_num
+                                );
                                 self.common.chunk_context.chunk_seq_num += 1;
                             }
                             Ok(())

@@ -27,7 +27,7 @@ jobs:
           submodules: recursive
 
       - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@a7a1a882e2d06ebe05d5bb97c3e1f8c984ae96fc # v2.0.7
+        uses: KyleMayes/install-llvm-action@98e68e10c96dffcb7bfed8b2144541a66b49aa02 # v2.0.8
         with:
           version: "14.0"
           directory: ${{ runner.temp }}/llvm
@@ -50,7 +50,7 @@ jobs:
           args: grcov
 
       - name: Cache
-        uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+        uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
 
       - name: Check code
         run: |

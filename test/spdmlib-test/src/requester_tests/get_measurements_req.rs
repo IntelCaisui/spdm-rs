@@ -6,7 +6,6 @@ use crate::common::device_io::{FakeSpdmDeviceIo, FakeSpdmDeviceIoReceve, SharedB
 use crate::common::secret_callback::*;
 use crate::common::transport::PciDoeTransportEncap;
 use crate::common::util::{create_info, get_rsp_cert_chain_buff};
-use ring::signature;
 use spdmlib::common::{ManagedBufferL1L2, SpdmConnectionState};
 use spdmlib::config::MAX_SPDM_MSG_SIZE;
 use spdmlib::error::{SpdmResult, SPDM_STATUS_INVALID_MSG_FIELD};
@@ -31,6 +30,7 @@ fn test_case0_send_receive_spdm_measurement() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         secret::measurement::register(SECRET_MEASUREMENT_IMPL_INSTANCE.clone());
 
         let mut responder = responder::ResponderContext::new(
@@ -81,7 +81,7 @@ fn test_case0_send_receive_spdm_measurement() {
         responder.common.reset_runtime_info();
         responder.common.provision_info.my_cert_chain = [
             Some(SpdmCertChainBuffer {
-                data_size: 512u16,
+                data_size: 512u32,
                 data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
             }),
             None,
@@ -499,6 +499,7 @@ fn test_case1_send_receive_spdm_measurement() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         secret::measurement::register(SECRET_MEASUREMENT_IMPL_INSTANCE.clone());
 
         let mut responder = responder::ResponderContext::new(
@@ -549,7 +550,7 @@ fn test_case1_send_receive_spdm_measurement() {
         responder.common.reset_runtime_info();
         responder.common.provision_info.my_cert_chain = [
             Some(SpdmCertChainBuffer {
-                data_size: 512u16,
+                data_size: 512u32,
                 data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
             }),
             None,
@@ -695,16 +696,17 @@ fn test_case1_send_receive_spdm_measurement() {
         let cert_chain_data = &requester.common.peer_info.peer_cert_chain[0 as usize]
             .as_ref()
             .unwrap()
-            .data[(4usize
-            + requester.common.negotiate_info.base_hash_sel.get_size() as usize)
+            .data[(4usize + requester.common.get_hash_size() as usize)
             ..(requester.common.peer_info.peer_cert_chain[0 as usize]
                 .as_ref()
                 .unwrap()
                 .data_size as usize)];
 
-        let result = crypto::asym_verify::verify(
+        let result = crypto::spdm_asym_verify(
             requester.common.negotiate_info.base_hash_sel,
             requester.common.negotiate_info.base_asym_sel,
+            requester.common.negotiate_info.pqc_asym_sel,
+            false,
             cert_chain_data,
             message_l1l2.as_ref(),
             &spdm_signature_struct,
@@ -728,6 +730,7 @@ fn test_case3_send_receive_spdm_measurement() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         secret::measurement::register(SECRET_MEASUREMENT_IMPL_INSTANCE.clone());
 
         let mut responder = responder::ResponderContext::new(
@@ -777,7 +780,7 @@ fn test_case3_send_receive_spdm_measurement() {
         responder.common.reset_runtime_info();
         responder.common.provision_info.my_cert_chain = [
             Some(SpdmCertChainBuffer {
-                data_size: 512u16,
+                data_size: 512u32,
                 data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
             }),
             None,
@@ -936,16 +939,17 @@ fn test_case3_send_receive_spdm_measurement() {
                 let cert_chain_data = &requester.common.peer_info.peer_cert_chain[0 as usize]
                     .as_ref()
                     .unwrap()
-                    .data[(4usize
-                    + requester.common.negotiate_info.base_hash_sel.get_size() as usize)
+                    .data[(4usize + requester.common.get_hash_size() as usize)
                     ..(requester.common.peer_info.peer_cert_chain[0 as usize]
                         .as_ref()
                         .unwrap()
                         .data_size as usize)];
 
-                let result = crypto::asym_verify::verify(
+                let result = crypto::spdm_asym_verify(
                     requester.common.negotiate_info.base_hash_sel,
                     requester.common.negotiate_info.base_asym_sel,
+                    requester.common.negotiate_info.pqc_asym_sel,
+                    false,
                     cert_chain_data,
                     message_l1l2.as_ref(),
                     &spdm_signature_struct,

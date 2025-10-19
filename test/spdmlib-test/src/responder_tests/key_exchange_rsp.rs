@@ -26,6 +26,7 @@ fn test_case0_handle_spdm_key_exchange() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         crypto::hmac::register(FAKE_HMAC.clone());
 
         let shared_buffer = SharedBuffer::new();
@@ -63,16 +64,16 @@ fn test_case0_handle_spdm_key_exchange() {
 
         let key_exchange: &mut [u8; 1024] = &mut [0u8; 1024];
         let mut writer = Writer::init(key_exchange);
-        let mut value = SpdmKeyExchangeRequestPayload {
+        let value = SpdmKeyExchangeRequestPayload {
             measurement_summary_hash_type:
                 SpdmMeasurementSummaryHashType::SpdmMeasurementSummaryHashTypeTcb,
-            slot_id: 100u8,
+            slot_id: 4,
             req_session_id: 0xffu16,
             session_policy: 1,
             random: SpdmRandomStruct {
                 data: [100u8; SPDM_RANDOM_SIZE],
             },
-            exchange: SpdmDheExchangeStruct::from(public_key),
+            exchange: SpdmReqExchangeStruct::from_dhe(SpdmDheExchangeStruct::from(public_key)),
             opaque: SpdmOpaqueStruct::from_sm_supported_ver_list_opaque(
                 &mut context.common,
                 &SMSupportedVerListOpaque {
@@ -111,7 +112,7 @@ fn test_case0_handle_spdm_key_exchange() {
 
         let mut response_buffer = [0u8; spdmlib::config::MAX_SPDM_MSG_SIZE];
         let mut writer = Writer::init(&mut response_buffer);
-        let (status, send_buffer) = context.handle_spdm_key_exchange(bytes, &mut writer);
+        let (_status, _send_buffer) = context.handle_spdm_key_exchange(bytes, &mut writer);
     };
     executor::block_on(future);
 }
@@ -123,6 +124,7 @@ fn test_case1_handle_spdm_key_exchange() {
         let pcidoe_transport_encap = Arc::new(Mutex::new(PciDoeTransportEncap {}));
 
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         crypto::hmac::register(FAKE_HMAC.clone());
 
         let shared_buffer = SharedBuffer::new();
@@ -160,7 +162,7 @@ fn test_case1_handle_spdm_key_exchange() {
 
         let key_exchange: &mut [u8; 1024] = &mut [0u8; 1024];
         let mut writer = Writer::init(key_exchange);
-        let mut value = SpdmKeyExchangeRequestPayload {
+        let value = SpdmKeyExchangeRequestPayload {
             measurement_summary_hash_type:
                 SpdmMeasurementSummaryHashType::SpdmMeasurementSummaryHashTypeTcb,
             slot_id: 0u8,
@@ -169,7 +171,7 @@ fn test_case1_handle_spdm_key_exchange() {
             random: SpdmRandomStruct {
                 data: [100u8; SPDM_RANDOM_SIZE],
             },
-            exchange: SpdmDheExchangeStruct::from(public_key),
+            exchange: SpdmReqExchangeStruct::from_dhe(SpdmDheExchangeStruct::from(public_key)),
             opaque: SpdmOpaqueStruct::from_sm_supported_ver_list_opaque(
                 &mut context.common,
                 &SMSupportedVerListOpaque {
@@ -208,7 +210,7 @@ fn test_case1_handle_spdm_key_exchange() {
 
         let mut response_buffer = [0u8; spdmlib::config::MAX_SPDM_MSG_SIZE];
         let mut writer = Writer::init(&mut response_buffer);
-        let (status, send_buffer) = context.handle_spdm_key_exchange(bytes, &mut writer);
+        let (_status, _send_buffer) = context.handle_spdm_key_exchange(bytes, &mut writer);
 
         for session in context.common.session.iter() {
             assert_eq!(

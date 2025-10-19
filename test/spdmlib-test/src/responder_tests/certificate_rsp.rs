@@ -2,18 +2,28 @@
 //
 // SPDX-License-Identifier: Apache-2.0 or MIT
 
-use crate::common::device_io::{self, FakeSpdmDeviceIoReceve, SharedBuffer};
-use crate::common::secret_callback::SECRET_ASYM_IMPL_INSTANCE;
-use crate::common::transport::PciDoeTransportEncap;
-use crate::common::util::{create_info, ResponderRunner, TestCase, TestSpdmMessage};
-use codec::{Codec, Writer};
-use spdmlib::common::*;
-use spdmlib::message::*;
-use spdmlib::protocol::*;
-use spdmlib::{config, responder, secret};
-use spin::Mutex;
+#[cfg(any(not(feature = "chunk-cap"), feature = "hashed-transcript-data"))]
+use crate::common::util::create_info;
+#[cfg(not(feature = "chunk-cap"))]
+use {
+    crate::common::device_io,
+    crate::common::util::{ResponderRunner, TestCase, TestSpdmMessage},
+};
+#[cfg(feature = "hashed-transcript-data")]
 extern crate alloc;
-use alloc::sync::Arc;
+#[cfg(feature = "hashed-transcript-data")]
+use {
+    crate::common::device_io::{FakeSpdmDeviceIoReceve, SharedBuffer},
+    crate::common::secret_callback::*,
+    crate::common::transport::PciDoeTransportEncap,
+    alloc::sync::Arc,
+    codec::{Codec, Writer},
+    spdmlib::common::*,
+    spdmlib::message::*,
+    spdmlib::protocol::*,
+    spdmlib::{config, responder, secret},
+    spin::Mutex,
+};
 
 #[test]
 #[cfg(feature = "hashed-transcript-data")]
@@ -28,6 +38,7 @@ fn test_case0_handle_spdm_certificate() {
             shared_buffer,
         ))));
         secret::asym_sign::register(SECRET_ASYM_IMPL_INSTANCE.clone());
+        secret::pqc_asym_sign::register(SECRET_PQC_ASYM_IMPL_INSTANCE.clone());
         let mut context = responder::ResponderContext::new(
             socket_io_transport,
             pcidoe_transport_encap,
@@ -39,7 +50,7 @@ fn test_case0_handle_spdm_certificate() {
 
         context.common.provision_info.my_cert_chain = [
             Some(SpdmCertChainBuffer {
-                data_size: 512u16,
+                data_size: 512u32,
                 data: [0u8; 4 + SPDM_MAX_HASH_SIZE + config::MAX_SPDM_CERT_CHAIN_DATA_SIZE],
             }),
             None,
@@ -104,7 +115,7 @@ fn test_case0_handle_spdm_certificate() {
             let spdm_get_certificate_request_payload =
                 SpdmGetCertificateRequestPayload::spdm_read(&mut context.common, &mut reader)
                     .unwrap();
-            assert_eq!(spdm_get_certificate_request_payload.slot_id, 100);
+            assert_eq!(spdm_get_certificate_request_payload.slot_id, 4);
             assert_eq!(spdm_get_certificate_request_payload.offset, 100);
             assert_eq!(spdm_get_certificate_request_payload.length, 600);
 
@@ -118,7 +129,7 @@ fn test_case0_handle_spdm_certificate() {
                 SpdmRequestResponseCode::SpdmResponseCertificate
             );
             if let SpdmMessagePayload::SpdmCertificateResponse(payload) = &spdm_message.payload {
-                assert_eq!(payload.slot_id, 100);
+                assert_eq!(payload.slot_id, 4);
                 assert_eq!(payload.portion_length, 412);
                 assert_eq!(payload.remainder_length, 0);
                 for i in 0..412 {
@@ -130,6 +141,7 @@ fn test_case0_handle_spdm_certificate() {
     executor::block_on(future);
 }
 
+#[cfg(not(feature = "chunk-cap"))]
 pub fn construct_certificate_positive() -> (Vec<TestSpdmMessage>, Vec<TestSpdmMessage>) {
     use crate::protocol;
     let (config_info, provision_info) = create_info();
